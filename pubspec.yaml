@@ -1,0 +1,44 @@
+name: aquawatch
+description: A new Flutter project.
+
+publish_to: 'none' # Remove this line if you want to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Core Flutter packages
+  cupertino_icons: ^1.0.8
+  
+  # Supabase related
+  supabase_flutter: ^2.9.0
+  flutter_dotenv: ^5.1.0  # Add this for environment variables
+  
+  # Bluetooth/Device connectivity
+  flutter_blue_plus: ^1.31.15
+  permission_handler: ^11.0.0
+  
+  # File/URL handling
+  open_file: ^3.3.1
+  path_provider: ^2.1.1
+  url_launcher: ^6.2.5
+  
+  # Networking
+  http: ^0.13.5
+  
+  # Add these for better state management and async handling (recommended)
+  provider: ^6.1.1
+  async: ^2.11.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
