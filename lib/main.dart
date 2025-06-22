@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -10,20 +9,16 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:aquawatch/services/realtime_service.dart';
+import 'package:aquawatch/services/database_service.dart';
+import 'package:aquawatch/services/auth_service.dart';
+import 'package:aquawatch/services/supabase_service.dart';
 
 ValueNotifier<bool> isWifiConnectedNotifier = ValueNotifier(false);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  await dotenv.load(fileName: ".env");
-  
-  await Supabase.initialize(
-    url: dotenv.env['https://puebqiinscgadombbyhb.supabase.co']!,
-    anonKey: dotenv.env['eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1ZWJxaWluc2NnYWRvbWJieWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAzOTk0NzQsImV4cCI6MjA2NTk3NTQ3NH0.3r_F44UDAinZfDUMV2lpYIXW2-XAPjJVOFYmut3q1iQ']!,
-  );
+  await SupabaseService().initialize();
   runApp(AquaWatchApp());
 }
 
@@ -178,11 +173,12 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final AuthService _authService = AuthService();
   bool _isPasswordVisible = false;
   bool _isLoading = false;
 
@@ -190,10 +186,21 @@ class _LoginScreenState extends State<LoginScreen>
   void initState() {
     super.initState();
     _animationController = AnimationController(
-      duration: Duration(milliseconds: 1000),
       vsync: this,
+      duration: const Duration(milliseconds: 500),
     );
-    _animationController.forward();
+    Future.delayed(Duration(seconds: 3), () {
+      try {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) =>
+                LoginScreen(onThemeChanged: widget.onThemeChanged),
+          ),
+        );
+      } catch (e) {
+        print('Navigation error: $e');
+      }
+    });
   }
 
   @override
@@ -210,28 +217,38 @@ class _LoginScreenState extends State<LoginScreen>
         _isLoading = true;
       });
 
-      await Future.delayed(Duration(seconds: 2));
+      final error = await _authService.signIn(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
 
       setState(() {
         _isLoading = false;
       });
 
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              MainScreen(onThemeChanged: widget.onThemeChanged),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: Offset(1.0, 0.0),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            );
-          },
-          transitionDuration: Duration(milliseconds: 300),
-        ),
-      );
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                MainScreen(onThemeChanged: widget.onThemeChanged),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position: Tween<Offset>(
+                      begin: Offset(1.0, 0.0),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  );
+                },
+            transitionDuration: Duration(milliseconds: 300),
+          ),
+        );
+      }
     }
   }
 
@@ -555,6 +572,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final AuthService _authService = AuthService();
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
@@ -581,77 +599,53 @@ class _RegisterScreenState extends State<RegisterScreen>
   }
 
   Future<void> _register() async {
-  if (_formKey.currentState!.validate() && _agreeToTerms) {
-    setState(() {
-      _isLoading = true;
-    });
+    if (_formKey.currentState!.validate() && _agreeToTerms) {
+      setState(() {
+        _isLoading = true;
+      });
 
-    try {
-      // 1. Create user with Supabase Auth
-      final authResponse = await Supabase.instance.client.auth.signUp(
+      final error = await _authService.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
+        username: _nameController.text.trim(),
       );
 
-      // 2. Add user data to your 'users' table
-      final userData = {
-        'id': authResponse.user!.id, // Use the auth user's ID
-        'email': _emailController.text.trim(),
-        'username': _nameController.text.trim(),
-        'created_at': DateTime.now().toIso8601String(),
-      };
+      setState(() {
+        _isLoading = false;
+      });
 
-      final response = await Supabase.instance.client
-          .from('users')
-          .insert(userData)
-          .execute();
-
-      if (response.error != null) {
-        throw response.error!;
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                TankSetupScreen(onThemeChanged: widget.onThemeChanged),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return SlideTransition(
+                    position: Tween<Offset>(
+                      begin: Offset(1.0, 0.0),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  );
+                },
+            transitionDuration: Duration(milliseconds: 300),
+          ),
+        );
       }
-
-      // Registration successful
-      setState(() {
-        _isLoading = false;
-      });
-
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              TankSetupScreen(onThemeChanged: widget.onThemeChanged),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: Offset(1.0, 0.0),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            );
-          },
-          transitionDuration: Duration(milliseconds: 300),
-        ),
-      );
-    } catch (error) {
-      setState(() {
-        _isLoading = false;
-      });
-      
+    } else if (!_agreeToTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Registration failed: ${error.toString()}'),
-          backgroundColor: Colors.red,
+          content: Text('Please agree to the terms and conditions'),
+          backgroundColor: Color(0xFFEF4444),
         ),
       );
     }
-  } else if (!_agreeToTerms) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Please agree to the terms and conditions'),
-        backgroundColor: Color(0xFFEF4444),
-      ),
-    );
   }
-}
 
   Future<void> _launchTerms() async {
     const url = 'https://example.com/terms';
@@ -1067,6 +1061,7 @@ class _TankSetupScreenState extends State<TankSetupScreen>
   final _formKey = GlobalKey<FormState>();
   final _heightController = TextEditingController();
   final _capacityController = TextEditingController();
+  final DatabaseService _databaseService = DatabaseService();
   bool _isLoading = false;
 
   @override
@@ -1079,7 +1074,7 @@ class _TankSetupScreenState extends State<TankSetupScreen>
     _animationController.forward();
 
     Future.delayed(Duration(milliseconds: 300), () {
-      showDialog(context: context, builder: (_) => BluetoothDevicePopup());
+      showDialog(context: context, builder: (_) => BluetoothDevicePage());
     });
   }
 
@@ -1096,21 +1091,36 @@ class _TankSetupScreenState extends State<TankSetupScreen>
       setState(() {
         _isLoading = true;
       });
-      await Future.delayed(Duration(seconds: 1));
-      setState(() {
-        _isLoading = false;
-      });
 
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              MainScreen(onThemeChanged: widget.onThemeChanged),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          transitionDuration: Duration(milliseconds: 500),
-        ),
-      );
+      try {
+        await _databaseService.saveTankDetails(
+          height: double.parse(_heightController.text),
+          capacity: double.parse(_capacityController.text),
+        );
+
+        Navigator.of(context).pushReplacement(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                MainScreen(onThemeChanged: widget.onThemeChanged),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return FadeTransition(opacity: animation, child: child);
+                },
+            transitionDuration: Duration(milliseconds: 500),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save tank details: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      } finally {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -1460,6 +1470,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool isDarkMode = false;
 
   bool isWifiConnected = false;
+  RealtimeService _realtimeService = RealtimeService();
+  String? _currentDeviceId;
 
   @override
   void initState() {
@@ -1469,10 +1481,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       vsync: this,
     );
     _animationController.forward();
+
+    // Initialize real-time updates when device is known
+    if (_currentDeviceId != null) {
+      _realtimeService.initialize(_currentDeviceId!);
+    }
   }
 
   @override
   void dispose() {
+    _realtimeService.dispose();
     _animationController.dispose();
     super.dispose();
   }
@@ -1610,7 +1628,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             valueListenable: isWifiConnectedNotifier,
             builder: (context, value, _) {
               return Text(
-                value ? "Connected" : "Not Connected",
+                value ? "" : "",
                 style: TextStyle(color: value ? Colors.green : Colors.red),
               );
             },
@@ -1859,6 +1877,8 @@ class _TankStatusCardState extends State<TankStatusCard>
                     painter: WaterTankPainter(
                       fillPercentage: _fillAnimation.value,
                       bubbleOffset: _animationController.value,
+                      isDarkMode:
+                          Theme.of(context).brightness == Brightness.dark,
                     ),
                   ),
                 ),
@@ -4000,14 +4020,14 @@ class WavePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
-class BluetoothDevicePopup extends StatefulWidget {
-  const BluetoothDevicePopup({super.key});
+class BluetoothDevicePage extends StatefulWidget {
+  const BluetoothDevicePage({super.key});
 
   @override
-  State<BluetoothDevicePopup> createState() => _BluetoothDevicePopupState();
+  State<BluetoothDevicePage> createState() => _BluetoothDevicePageState();
 }
 
-class _BluetoothDevicePopupState extends State<BluetoothDevicePopup> {
+class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
   List<ScanResult> scanResults = [];
 
   @override
@@ -4024,7 +4044,7 @@ class _BluetoothDevicePopupState extends State<BluetoothDevicePopup> {
       Permission.location,
     ].request();
 
-    FlutterBluePlus.startScan(timeout: Duration(seconds: 5));
+    FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
     FlutterBluePlus.scanResults.listen((results) {
       setState(() {
         scanResults = results;
@@ -4032,78 +4052,72 @@ class _BluetoothDevicePopupState extends State<BluetoothDevicePopup> {
     });
   }
 
+  Future<void> connectToDevice(BluetoothDevice device) async {
+    try {
+      print('🔗 Connecting to ${device.name}...');
+      await device.connect();
+      print('✅ Connected to ${device.name}');
+
+      List<BluetoothService> services = await device.discoverServices();
+
+      final serviceUuid = Guid('12345678-1234-5678-1234-56789abcdef0');
+      final charUuid = Guid('abcdefab-cdef-1234-5678-1234567890ab');
+
+      BluetoothCharacteristic? targetChar;
+
+      for (var service in services) {
+        if (service.uuid == serviceUuid) {
+          for (var char in service.characteristics) {
+            if (char.uuid == charUuid) {
+              targetChar = char;
+              break;
+            }
+          }
+        }
+      }
+
+      if (targetChar != null) {
+        print('🎯 Characteristic found: ${targetChar.uuid}');
+        await showWifiCredentialsDialog(context, device, targetChar);
+      } else {
+        print('❌ Required BLE characteristic not found');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("❌ Required BLE characteristic not found."),
+            backgroundColor: Colors.red,
+          ),
+        );
+        await device.disconnect();
+      }
+    } catch (e) {
+      print('❌ Error: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Select a Bluetooth Device'),
-      content: SizedBox(
-        height: 250,
-        width: 300,
-        child: scanResults.isEmpty
-            ? const Center(child: Text('Scanning for devices...'))
-            : ListView.builder(
-                itemCount: scanResults.length,
-                itemBuilder: (context, index) {
-                  final device = scanResults[index].device;
-                  return ListTile(
-                    title: Text(
-                      device.name.isNotEmpty ? device.name : 'Unknown',
-                    ),
-                    subtitle: Text(device.id.toString()),
-                    onTap: () async {
-                      print('🔗 Connecting to ${device.name}...');
-                      await device.connect();
-                      print('✅ Connected to ${device.name}');
-
-                      List<BluetoothService> services = await device
-                          .discoverServices();
-                      final serviceUuid = Guid(
-                        '12345678-1234-5678-1234-56789abcdef0',
-                      );
-                      final charUuid = Guid(
-                        'abcdefab-cdef-1234-5678-1234567890ab',
-                      );
-
-                      BluetoothCharacteristic? targetChar;
-
-                      for (var service in services) {
-                        if (service.uuid == serviceUuid) {
-                          for (var char in service.characteristics) {
-                            if (char.uuid == charUuid) {
-                              targetChar = char;
-                              break;
-                            }
-                          }
-                        }
-                      }
-
-                      if (targetChar != null) {
-                        print('🎯 Characteristic found: ${targetChar.uuid}');
-                        Navigator.pop(context); // ✅ Only close popup on success
-                        await showWifiCredentialsDialog(
-                          context,
-                          device,
-                          targetChar,
-                        );
-                      } else {
-                        print('❌ Target characteristic not found');
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              "❌ Required BLE characteristic not found.",
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                        await device.disconnect();
-                      }
-
-                      print('🔌 Disconnected');
-                    },
-                  );
-                },
-              ),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Select a Bluetooth Device'),
+        backgroundColor: const Color(0xFF4689C8),
       ),
+      body: scanResults.isEmpty
+          ? const Center(child: Text('🔍 Scanning for devices...'))
+          : ListView.builder(
+              itemCount: scanResults.length,
+              itemBuilder: (context, index) {
+                final device = scanResults[index].device;
+                return ListTile(
+                  title: Text(
+                    device.name.isNotEmpty ? device.name : 'Unknown Device',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(device.id.toString()),
+                  trailing: const Icon(Icons.bluetooth),
+                  onTap: () => connectToDevice(device),
+                );
+              },
+            ),
     );
   }
 }
@@ -4115,6 +4129,7 @@ Future<void> showWifiCredentialsDialog(
 ) async {
   final ssidController = TextEditingController();
   final passwordController = TextEditingController();
+  final databaseService = DatabaseService();
 
   return showDialog(
     context: context,
@@ -4144,6 +4159,17 @@ Future<void> showWifiCredentialsDialog(
 
             await characteristic.write(data.codeUnits, withoutResponse: false);
             print('✅ Sent to ESP32: $data');
+
+            // Save device details to Supabase
+            try {
+              await databaseService.saveDeviceDetails(
+                esp32Id: device.id.toString(),
+                wifiSsid: ssid,
+                wifiPassword: password,
+              );
+            } catch (e) {
+              print('Error saving device: $e');
+            }
 
             await characteristic.setNotifyValue(true);
             characteristic.value.listen((value) {
@@ -4178,13 +4204,20 @@ Future<void> showWifiCredentialsDialog(
 class WaterTankPainter extends CustomPainter {
   final double fillPercentage;
   final double bubbleOffset;
+  final bool isDarkMode;
 
-  WaterTankPainter({required this.fillPercentage, required this.bubbleOffset});
+  WaterTankPainter({
+    required this.fillPercentage,
+    required this.bubbleOffset,
+    required this.isDarkMode,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final borderPaint = Paint()
-      ..color = Colors.white.withOpacity(0.9)
+      ..color = isDarkMode
+          ? Colors.white.withOpacity(0.9)
+          : const Color(0xFF334155).withOpacity(0.9)
       ..strokeWidth = 2.8
       ..style = PaintingStyle.stroke;
 
