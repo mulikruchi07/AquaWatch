@@ -9,22 +9,42 @@ class AuthService {
     required String username,
   }) async {
     try {
+      // 1. Check if email already exists
+      final emailCheck = await _supabase
+          .from('users')
+          .select('email')
+          .eq('email', email)
+          .maybeSingle();
+
+      if (emailCheck != null) {
+        return "Email already exists. Please use a different email.";
+      }
+
+      // 2. Try signup
       final response = await _supabase.auth.signUp(
         email: email,
         password: password,
-        data: {
-          'username': username,
-        },
+        data: {'username': username},
+        emailRedirectTo: 'https://your-app.com/login', // Custom URL
       );
-      
-      if (response.user?.confirmedAt == null) {
-        return 'Please check your email for verification';
-      }
-      return null;
+
+      final user = response.user;
+
+      if (user == null) return "Signup failed.";
+
+      // 3. Insert into users table
+      await _supabase.from('users').insert({
+        'id': user.id,
+        'email': email,
+        'username': username,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      return "Verification mail sent. Please verify your email to login.";
     } on AuthException catch (e) {
       return e.message;
     } catch (e) {
-      return 'An unexpected error occurred';
+      return 'Unexpected error occurred.';
     }
   }
 
@@ -37,15 +57,12 @@ class AuthService {
         email: email,
         password: password,
       );
-      
-      if (response.user?.confirmedAt == null) {
-        return 'Please verify your email first';
-      }
-      return null;
+
+      return null; // success
     } on AuthException catch (e) {
       return e.message;
     } catch (e) {
-      return 'An unexpected error occurred';
+      return 'Unexpected error occurred';
     }
   }
 
