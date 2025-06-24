@@ -9,191 +9,42 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 
 ValueNotifier<bool> isWifiConnectedNotifier = ValueNotifier(false);
 
-Future<void> main() async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  final isRegistered = prefs.getBool('isRegistered') ?? false;
+  final isTankSetupDone = prefs.getBool('isTankSetupDone') ?? false;
 
-  await Supabase.initialize(
-    url: 'https://nsozwzaapsfywdwdolcp.supabase.co',
-    anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zb3p3emFhcHNmeXdkd2RvbGNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2NjIyNzgsImV4cCI6MjA2NjIzODI3OH0.pyWs3kRZA6NJkZjinlLiPFVjpmSUr4ZM9q-yu38lsJs',
-  );
-
-  runApp(AquaWatchApp());
+  runApp(MyApp(
+    isRegistered: isRegistered,
+    isTankSetupDone: isTankSetupDone,
+  ));
 }
 
-class AuthService {
-  static final supabase = Supabase.instance.client;
+class MyApp extends StatelessWidget {
+  final bool isRegistered;
+  final bool isTankSetupDone;
 
-  // Sign up with email and password
-  static Future<void> signUp({
-    required String email,
-    required String password,
-    required String username,
-  }) async {
-    try {
-      final response = await supabase.auth.signUp(
-        email: email,
-        password: password,
-        data: {'username': username},
-      );
+  const MyApp({
+    Key? key,
+    required this.isRegistered,
+    required this.isTankSetupDone,
+  }) : super(key: key);
 
-      if (response.user == null) {
-        throw Exception('Sign up failed');
-      }
-    } catch (e) {
-      throw Exception('Sign up error: $e');
-    }
-  }
-
-  // Sign in with email and password
-  static Future<void> signIn({
-    required String email,
-    required String password,
-  }) async {
-    try {
-      final response = await supabase.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
-
-      if (response.user == null) {
-        throw Exception('Sign in failed');
-      }
-    } catch (e) {
-      throw Exception('Sign in error: $e');
-    }
-  }
-
-  // Sign out
-  static Future<void> signOut() async {
-    await supabase.auth.signOut();
-  }
-
-  // Get current user
-  static User? get currentUser => supabase.auth.currentUser;
-
-  // Get user profile
-  static Future<Map<String, dynamic>?> getUserProfile() async {
-    final userId = currentUser?.id;
-    if (userId == null) return null;
-
-    final response = await supabase
-        .from('users')
-        .select()
-        .eq('id', userId)
-        .single();
-
-    return response;
-  }
-
-  // Send OTP
-  static Future<void> sendOtp(String email) async {
-    await supabase.auth.signInWithOtp(
-      email: email,
-      emailRedirectTo: 'io.supabase.flutterquickstart://login-callback/',
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: !isRegistered
+          ? InitialScreen(onThemeChanged: (mode) {}) // temp handler
+          : !isTankSetupDone
+              ? BluetoothDevicePage(onThemeChanged: (mode) {})
+              : MainScreen(onThemeChanged: (mode) {}),
     );
-  }
-
-  // Verify OTP
-  static Future<void> verifyOtp(String email, String token) async {
-    await supabase.auth.verifyOTP(
-      email: email,
-      token: token,
-      type: OtpType.email,
-    );
-  }
-
-  // Save ESP device details
-  static Future<void> saveEspDevice({
-    required String espId,
-    required String wifiSsid,
-    required String wifiPassword,
-    required double tankCapacity,
-    required double tankHeight,
-    required String valveType,
-  }) async {
-    final userId = currentUser?.id;
-    if (userId == null) throw Exception('User not logged in');
-
-    // First update user with ESP ID
-    await supabase.from('users').update({'esp_id': espId}).eq('id', userId);
-
-    // Then insert ESP device details
-    await supabase.from('esp_devices').upsert({
-      'id': espId,
-      'user_id': userId,
-      'wifi_ssid': wifiSsid,
-      'wifi_password': wifiPassword,
-      'tank_capacity': tankCapacity,
-      'tank_height': tankHeight,
-      'valve_type': valveType,
-    });
-  }
-
-  // Get ESP device details
-  static Future<Map<String, dynamic>?> getEspDevice() async {
-    final userId = currentUser?.id;
-    if (userId == null) return null;
-
-    final response = await supabase
-        .from('esp_devices')
-        .select()
-        .eq('user_id', userId)
-        .maybeSingle();
-
-    return response;
-  }
-
-  // Get latest readings
-  static Future<Map<String, dynamic>?> getLatestReadings() async {
-    final espDevice = await getEspDevice();
-    if (espDevice == null || espDevice['id'] == null) return null;
-
-    final response = await supabase
-        .from('readings')
-        .select()
-        .eq('esp_id', espDevice['id'])
-        .order('timestamp', ascending: false)
-        .limit(1)
-        .maybeSingle();
-
-    return response;
-  }
-
-  // Get controller status
-  static Future<Map<String, dynamic>?> getControllerStatus() async {
-    final espDevice = await getEspDevice();
-    if (espDevice == null || espDevice['id'] == null) return null;
-
-    final response = await supabase
-        .from('controller_status')
-        .select()
-        .eq('esp_id', espDevice['id'])
-        .order('timestamp', ascending: false)
-        .limit(1)
-        .maybeSingle();
-
-    return response;
-  }
-
-  // Update controller status
-  static Future<void> updateControllerStatus(
-    bool status,
-    String triggeredBy,
-  ) async {
-    final espDevice = await getEspDevice();
-    if (espDevice == null || espDevice['id'] == null) return;
-
-    await supabase.from('controller_status').insert({
-      'esp_id': espDevice['id'],
-      'status': status,
-      'triggered_by': triggeredBy,
-    });
   }
 }
 
@@ -380,41 +231,28 @@ class _LoginScreenState extends State<LoginScreen>
         _isLoading = true;
       });
 
-      try {
-        await AuthService.signIn(
-          email: _emailController.text,
-          password: _passwordController.text,
-        );
+      await Future.delayed(Duration(seconds: 2));
 
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                MainScreen(onThemeChanged: widget.onThemeChanged),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-                  return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: Offset(1.0, 0.0),
-                      end: Offset.zero,
-                    ).animate(animation),
-                    child: child,
-                  );
-                },
-            transitionDuration: Duration(milliseconds: 300),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Login failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      } finally {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      setState(() {
+        _isLoading = false;
+      });
+
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              MainScreen(onThemeChanged: widget.onThemeChanged),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: Offset(1.0, 0.0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            );
+          },
+          transitionDuration: Duration(milliseconds: 300),
+        ),
+      );
     }
   }
 
@@ -769,57 +607,28 @@ class _RegisterScreenState extends State<RegisterScreen>
         _isLoading = true;
       });
 
-      try {
-        // First check if email exists
-        final emailCheck = await Supabase.instance.client
-            .from('users')
-            .select()
-            .eq('email', _emailController.text)
-            .maybeSingle();
+      await Future.delayed(Duration(seconds: 2));
 
-        if (emailCheck != null) {
-          throw Exception('Email already exists');
-        }
+      setState(() {
+        _isLoading = false;
+      });
 
-        // Register the user
-        await AuthService.signUp(
-          email: _emailController.text,
-          password: _passwordController.text,
-          username: _nameController.text,
-        );
-
-        // Send OTP
-        await AuthService.sendOtp(_emailController.text);
-
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                OtpVerificationPage(email: _emailController.text),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-                  return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: Offset(1.0, 0.0),
-                      end: Offset.zero,
-                    ).animate(animation),
-                    child: child,
-                  );
-                },
-            transitionDuration: Duration(milliseconds: 300),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Registration failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      } finally {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              OtpVerificationPage(email: _emailController.text, onThemeChanged: widget.onThemeChanged),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return SlideTransition(
+              position: Tween<Offset>(
+                begin: Offset(1.0, 0.0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            );
+          },
+          transitionDuration: Duration(milliseconds: 300),
+        ),
+      );
     } else if (!_agreeToTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1230,13 +1039,9 @@ class _RegisterScreenState extends State<RegisterScreen>
 
 class TankSetupScreen extends StatefulWidget {
   final Function(ThemeMode) onThemeChanged;
-  final String userEmail;
 
-  const TankSetupScreen({
-    Key? key,
-    required this.onThemeChanged,
-    required this.userEmail,
-  }) : super(key: key);
+  const TankSetupScreen({Key? key, required this.onThemeChanged,})
+    : super(key: key);
 
   @override
   _TankSetupScreenState createState() => _TankSetupScreenState();
@@ -1258,13 +1063,6 @@ class _TankSetupScreenState extends State<TankSetupScreen>
       vsync: this,
     );
     _animationController.forward();
-
-    Future.delayed(Duration(milliseconds: 300), () {
-      showDialog(
-        context: context,
-        builder: (_) => OtpVerificationPage(email: widget.userEmail),
-      );
-    });
   }
 
   @override
@@ -1280,45 +1078,24 @@ class _TankSetupScreenState extends State<TankSetupScreen>
       setState(() {
         _isLoading = true;
       });
+      await Future.delayed(Duration(seconds: 1));
 
-      try {
-        final capacity = double.parse(_capacityController.text);
-        final height = double.parse(_heightController.text);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isTankSetupDone', true);
+      setState(() {
+        _isLoading = false;
+      });
 
-        // Save tank details to Supabase
-        await AuthService.saveEspDevice(
-          espId: AuthService.currentUser?.userMetadata?['esp_id'] ?? 'default',
-          wifiSsid: 'configured_via_bluetooth', // Already configured via BLE
-          wifiPassword:
-              'configured_via_bluetooth', // Already configured via BLE
-          tankCapacity: capacity,
-          tankHeight: height,
-          valveType: 'VALVE', // Default to valve, can be changed in settings
-        );
-
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                MainScreen(onThemeChanged: widget.onThemeChanged),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-                  return FadeTransition(opacity: animation, child: child);
-                },
-            transitionDuration: Duration(milliseconds: 500),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save tank details: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      } finally {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              MainScreen(onThemeChanged: widget.onThemeChanged),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+          transitionDuration: Duration(milliseconds: 500),
+        ),
+      );
     }
   }
 
@@ -1657,15 +1434,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   late AnimationController _animationController;
   ThemeMode currentTheme = ThemeMode.system;
   bool isDarkMode = false;
+
   bool isWifiConnected = false;
-
-  Map<String, dynamic>? _tankData;
-  Map<String, dynamic>? _latestReading;
-  Map<String, dynamic>? _controllerStatus;
-  late RealtimeChannel _changesSubscription;
-
-  @override
-  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -1675,51 +1445,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       vsync: this,
     );
     _animationController.forward();
-    _fetchData();
-    _setupRealtimeUpdates();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
-    _changesSubscription.unsubscribe();
     super.dispose();
-  }
-
-  Future<void> _fetchData() async {
-    final tankData = await AuthService.getEspDevice();
-    final latestReading = await AuthService.getLatestReadings();
-    final controllerStatus = await AuthService.getControllerStatus();
-
-    if (mounted) {
-      setState(() {
-        _tankData = tankData;
-        _latestReading = latestReading;
-        _controllerStatus = controllerStatus;
-      });
-    }
-  }
-
-  void _setupRealtimeUpdates() {
-    _changesSubscription = Supabase.instance.client
-        .channel('dashboard-updates')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'readings',
-          callback: (payload) {
-            _fetchData();
-          },
-        )
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'controller_status',
-          callback: (payload) {
-            _fetchData();
-          },
-        )
-        .subscribe();
   }
 
   @override
@@ -1753,27 +1484,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                 padding: EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    _buildAnimatedCard(
-                      TankStatusCard(
-                        isDark: isDark,
-                        capacity:
-                            _tankData?['tank_capacity']?.toDouble() ?? 1000.0,
-                        currentLevel:
-                            _latestReading?['water_level']?.toDouble() ?? 0.0,
-                        valveType: _tankData?['valve_type'] ?? 'VALVE',
-                        valveStatus: _controllerStatus?['status'] ?? false,
-                      ),
-                      0,
-                    ),
+                    _buildAnimatedCard(TankStatusCard(isDark: isDark), 0),
                     SizedBox(height: 16),
-                    _buildAnimatedCard(
-                      WaterQualityCard(
-                        isDark: isDark,
-                        tdsValue:
-                            _latestReading?['tds_value']?.toDouble() ?? 0.0,
-                      ),
-                      1,
-                    ),
+                    _buildAnimatedCard(WaterQualityCard(isDark: isDark), 1),
                     SizedBox(height: 16),
                     _buildAnimatedCard(ValveControlCard(isDark: isDark), 2),
                     SizedBox(height: 16),
@@ -2025,19 +1738,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
 class TankStatusCard extends StatefulWidget {
   final bool isDark;
-  final double capacity;
-  final double currentLevel;
-  final String valveType;
-  final bool valveStatus;
 
-  const TankStatusCard({
-    Key? key,
-    required this.isDark,
-    required this.capacity,
-    required this.currentLevel,
-    required this.valveType,
-    required this.valveStatus,
-  }) : super(key: key);
+  const TankStatusCard({Key? key, required this.isDark}) : super(key: key);
 
   @override
   _TankStatusCardState createState() => _TankStatusCardState();
@@ -2057,11 +1759,7 @@ class _TankStatusCardState extends State<TankStatusCard>
       vsync: this,
     );
 
-    final fillPercentage = widget.capacity > 0
-        ? (widget.currentLevel / widget.capacity).clamp(0.0, 1.0)
-        : 0.0;
-
-    _fillAnimation = Tween<double>(begin: 0.0, end: fillPercentage).animate(
+    _fillAnimation = Tween<double>(begin: 0.0, end: 0.75).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
     );
 
@@ -2083,10 +1781,6 @@ class _TankStatusCardState extends State<TankStatusCard>
 
   @override
   Widget build(BuildContext context) {
-    final fillPercentage = _fillAnimation.value;
-    final currentLevel = widget.currentLevel;
-    final capacity = widget.capacity;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2141,36 +1835,30 @@ class _TankStatusCardState extends State<TankStatusCard>
                     painter: WaterTankPainter(
                       fillPercentage: _fillAnimation.value,
                       bubbleOffset: _animationController.value,
-                      isDarkMode:
-                          Theme.of(context).brightness == Brightness.dark,
+                      isDarkMode: Theme.of(context).brightness == Brightness.dark,
                     ),
                   ),
                 ),
               ),
+              // Percentage text overlay
               Positioned(
                 child: Text(
-                  '${(fillPercentage * 100).toStringAsFixed(0)}%',
+                  '${(_fillAnimation.value * 100).toInt()}%',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 24,
                     color: widget.isDark
-                        ? Color(0xFFF1F5F9)
-                        : Color(0xFF1F2937),
+                        ? const Color(0xFFF1F5F9)
+                        : const Color(0xFF1F2937),
                   ),
                 ),
               ),
             ],
           ),
         ),
+
         SizedBox(height: 24),
-        _buildInfoRow(
-          'Current Level:',
-          '${currentLevel.toStringAsFixed(0)}L / ${capacity.toStringAsFixed(0)}L',
-        ),
-        SizedBox(height: 12),
-        _buildInfoRow('Valve Type:', widget.valveType),
-        SizedBox(height: 12),
-        _buildInfoRow('Valve Status:', widget.valveStatus ? 'OPEN' : 'CLOSED'),
+        _buildInfoRow('Current Level:', '750L / 1000L'),
       ],
     );
   }
@@ -2201,13 +1889,8 @@ class _TankStatusCardState extends State<TankStatusCard>
 
 class WaterQualityCard extends StatelessWidget {
   final bool isDark;
-  final double tdsValue;
 
-  const WaterQualityCard({
-    Key? key,
-    required this.isDark,
-    required this.tdsValue,
-  }) : super(key: key);
+  const WaterQualityCard({Key? key, required this.isDark}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -2257,7 +1940,7 @@ class WaterQualityCard extends StatelessWidget {
           iconColor: Color(0xFF16A34A),
           iconBg: Color(0xFFDCFCE7),
           label: 'TDS',
-          value: '${tdsValue.toStringAsFixed(2)} ppm', // Use the tdsValue here
+          value: '150 ppm',
           status: 'Good',
           statusColor: Color(0xFF16A34A),
           progress: 0.3,
@@ -3010,10 +2693,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Widget _buildProfileSection(bool isDark) {
-    final user = AuthService.currentUser;
-    final email = user?.email ?? 'No email';
-    final username = user?.userMetadata?['username'] ?? 'No username';
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3037,7 +2716,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
               child: Center(
                 child: Text(
-                  username.isNotEmpty ? username[0].toUpperCase() : '?',
+                  'JD',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -3051,7 +2730,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  username,
+                  'John Doe',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -3060,7 +2739,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
                 SizedBox(height: 4),
                 Text(
-                  email,
+                  'john.doe@example.com',
                   style: TextStyle(
                     fontSize: 14,
                     color: isDark ? Color(0xFF94A3B8) : Color(0xFF6B7280),
@@ -3104,9 +2783,8 @@ class _SettingsScreenState extends State<SettingsScreen>
               child: Text('Cancel'),
             ),
             TextButton(
-              onPressed: () async {
+              onPressed: () {
                 Navigator.of(context).pop();
-                await AuthService.signOut();
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(
                     builder: (context) =>
@@ -4300,7 +3978,8 @@ class WavePainter extends CustomPainter {
 }
 
 class BluetoothDevicePage extends StatefulWidget {
-  const BluetoothDevicePage({super.key});
+  final Function(ThemeMode) onThemeChanged;
+  const BluetoothDevicePage({super.key, required this.onThemeChanged});
 
   @override
   State<BluetoothDevicePage> createState() => _BluetoothDevicePageState();
@@ -4335,7 +4014,7 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
     try {
       print('🔗 Connecting to ${device.name}...');
       await device.connect();
-      print('✅ Connected to ${device.name}');
+      print('✔️ Connected to ${device.name}');
 
       List<BluetoothService> services = await device.discoverServices();
 
@@ -4357,12 +4036,12 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
 
       if (targetChar != null) {
         print('🎯 Characteristic found: ${targetChar.uuid}');
-        await showWifiCredentialsDialog(context, device, targetChar);
+        await showWifiCredentialsDialog(context, device, targetChar, widget.onThemeChanged);
       } else {
         print('❌ Required BLE characteristic not found');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("❌ Required BLE characteristic not found."),
+            content: Text("✖️ Required device not found."),
             backgroundColor: Colors.red,
           ),
         );
@@ -4375,7 +4054,13 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return WillPopScope(
+    onWillPop: () async {
+      // Exit the app when back is pressed
+      SystemNavigator.pop(); // OR: import 'dart:io' and use exit(0);
+      return false;
+    },
+     child: Scaffold(
       appBar: AppBar(
         title: const Text('Add Device'),
         backgroundColor: const Color(0xFF4689C8),
@@ -4398,6 +4083,7 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
                 );
               },
             ),
+    ),
     );
   }
 }
@@ -4406,6 +4092,7 @@ Future<void> showWifiCredentialsDialog(
   BuildContext context,
   BluetoothDevice device,
   BluetoothCharacteristic characteristic,
+  Function(ThemeMode) onThemeChanged,
 ) async {
   final ssidController = TextEditingController();
   final passwordController = TextEditingController();
@@ -4447,7 +4134,12 @@ Future<void> showWifiCredentialsDialog(
               if (response == "WIFI_OK") {
                 isWifiConnectedNotifier.value = true;
                 Navigator.of(context).pop();
-                Navigator.of(context).pop();
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TankSetupScreen(onThemeChanged: onThemeChanged),
+                  ),
+                );
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text("✅ Wi-Fi connected!"),
@@ -4475,18 +4167,14 @@ class WaterTankPainter extends CustomPainter {
   final double bubbleOffset;
   final bool isDarkMode;
 
-  WaterTankPainter({
-    required this.fillPercentage,
-    required this.bubbleOffset,
-    required this.isDarkMode,
-  });
+  WaterTankPainter({required this.fillPercentage, required this.bubbleOffset, required this.isDarkMode,});
 
   @override
   void paint(Canvas canvas, Size size) {
     final borderPaint = Paint()
       ..color = isDarkMode
-          ? Colors.white.withOpacity(0.9)
-          : const Color(0xFF334155).withOpacity(0.9)
+      ? Colors.white.withOpacity(0.9)
+      : const Color(0xFF334155).withOpacity(0.9)
       ..strokeWidth = 2.8
       ..style = PaintingStyle.stroke;
 
@@ -4579,7 +4267,8 @@ class WaterTankPainter extends CustomPainter {
 
 class OtpVerificationPage extends StatefulWidget {
   final String email; // if you want to pass email for verification
-  const OtpVerificationPage({super.key, required this.email});
+  final Function(ThemeMode) onThemeChanged;
+  const OtpVerificationPage({super.key, required this.email, required this.onThemeChanged,});
 
   @override
   State<OtpVerificationPage> createState() => _OtpVerificationPageState();
@@ -4598,10 +4287,14 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
     await Future.delayed(const Duration(seconds: 1));
 
     if (enteredOtp == "123456") {
+
+      final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isRegistered', true);
+
       // ✅ OTP matched, go to Bluetooth page
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const BluetoothDevicePage()),
+        MaterialPageRoute(builder: (_) => BluetoothDevicePage(onThemeChanged: widget.onThemeChanged)),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4657,7 +4350,10 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
                 ),
                 child: _isVerifying
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text("Verify", style: TextStyle(fontSize: 16)),
+                    : const Text(
+                        "Verify",
+                        style: TextStyle(fontSize: 16),
+                      ),
               ),
             ),
           ],
