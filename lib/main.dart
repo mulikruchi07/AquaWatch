@@ -10,43 +10,15 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase/supabase.dart';
 
+final supabase = SupabaseClient('https://himkdnnczzfzmwmjxlaa.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpbWtkbm5jenpmem13bWp4bGFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEyNTg0NjcsImV4cCI6MjA2NjgzNDQ2N30.Rib26sSBExk_22UxcZrssaT0tWNk1mN0ghJtvK4svWw');
 ValueNotifier<bool> isWifiConnectedNotifier = ValueNotifier(false);
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  final isRegistered = prefs.getBool('isRegistered') ?? false;
-  final isTankSetupDone = prefs.getBool('isTankSetupDone') ?? false;
-
-  runApp(MyApp(
-    isRegistered: isRegistered,
-    isTankSetupDone: isTankSetupDone,
-  ));
+  runApp(AquaWatchApp());
 }
 
-class MyApp extends StatelessWidget {
-  final bool isRegistered;
-  final bool isTankSetupDone;
-
-  const MyApp({
-    Key? key,
-    required this.isRegistered,
-    required this.isTankSetupDone,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: !isRegistered
-          ? InitialScreen(onThemeChanged: (mode) {}) // temp handler
-          : !isTankSetupDone
-              ? BluetoothDevicePage(onThemeChanged: (mode) {})
-              : MainScreen(onThemeChanged: (mode) {}),
-    );
-  }
-}
 
 class AquaWatchApp extends StatefulWidget {
   @override
@@ -124,18 +96,32 @@ class InitialScreen extends StatefulWidget {
 }
 
 class _InitialScreenState extends State<InitialScreen> {
-  @override
-  void initState() {
-    super.initState();
-    Future.delayed(Duration(seconds: 3), () {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) =>
-              LoginScreen(onThemeChanged: widget.onThemeChanged),
-        ),
-      );
-    });
-  }
+ @override
+void initState() {
+  super.initState();
+
+  Future.delayed(Duration(seconds: 3), () async {
+    final prefs = await SharedPreferences.getInstance();
+    final isRegistered = prefs.getBool('isRegistered') ?? false;
+    final isTankSetupDone = prefs.getBool('isTankSetupDone') ?? false;
+    final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    
+    Widget nextScreen;
+
+    if (!isRegistered && !isLoggedIn) {
+      nextScreen = LoginScreen(onThemeChanged: widget.onThemeChanged);
+    } else if (!isTankSetupDone && !isLoggedIn) {
+      nextScreen = BluetoothDevicePage(onThemeChanged: widget.onThemeChanged);
+    } else {
+      nextScreen = MainScreen(onThemeChanged: widget.onThemeChanged);
+    }
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => nextScreen),
+    );
+  });
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -226,17 +212,43 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _login() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+  if (_formKey.currentState!.validate()) {
+    setState(() {
+      _isLoading = true;
+    });
 
-      await Future.delayed(Duration(seconds: 2));
+    try {
+      final username = _emailController.text.trim(); // it's actually username
+      final password = _passwordController.text.trim();
 
-      setState(() {
-        _isLoading = false;
-      });
+      // Step 1: Fetch email for this username from Supabase 'users' table
+      final response = await supabase
+          .from('users')
+          .select('email')
+          .eq('name', username)
+          .maybeSingle();
 
+      if (response == null || response['email'] == null) {
+        throw Exception('Username not found');
+      }
+
+      final email = response['email'];
+
+      // Step 2: Try to log in using email and password
+      final loginResponse = await supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+
+      if (loginResponse.user == null) {
+        throw Exception('Login failed');
+      }
+
+      // Optional: mark as logged in
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+
+      // Step 3: Navigate to main screen
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) =>
@@ -253,8 +265,23 @@ class _LoginScreenState extends State<LoginScreen>
           transitionDuration: Duration(milliseconds: 300),
         ),
       );
+    } catch (e) {
+      print('❌ Login error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Login failed. Check username or password.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
+}
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -602,42 +629,71 @@ class _RegisterScreenState extends State<RegisterScreen>
   }
 
   Future<void> _register() async {
-    if (_formKey.currentState!.validate() && _agreeToTerms) {
-      setState(() {
-        _isLoading = true;
-      });
+  if (_formKey.currentState!.validate() && _agreeToTerms) {
+    setState(() => _isLoading = true);
 
-      await Future.delayed(Duration(seconds: 2));
+    try {
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+      final name = _nameController.text.trim();
 
-      setState(() {
-        _isLoading = false;
-      });
+      final existingUser = await supabase
+          .from('users')
+          .select('email')
+          .eq('email', email)
+          .maybeSingle();
 
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              OtpVerificationPage(email: _emailController.text, onThemeChanged: widget.onThemeChanged),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return SlideTransition(
-              position: Tween<Offset>(
-                begin: Offset(1.0, 0.0),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            );
-          },
-          transitionDuration: Duration(milliseconds: 300),
-        ),
+      if (existingUser != null) {
+        throw Exception('⚠️ Email already registered.');
+    }
+
+
+      final response = await supabase.auth.signUp(
+        email: email,
+        password: password,
       );
-    } else if (!_agreeToTerms) {
+
+      if (response.user == null) {
+        throw Exception("User creation failed");
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please agree to the terms and conditions'),
-          backgroundColor: Color(0xFFEF4444),
+          content: Text('📩 OTP sent to $email'),
+          backgroundColor: Colors.green,
         ),
       );
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => OtpVerificationPage(
+            email: email,
+            name: name,
+            onThemeChanged: widget.onThemeChanged
+          ),
+        ),
+      );
+    } catch (e) {
+      print('❌ Registration failed: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ Email already registered'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
     }
+  } else if (!_agreeToTerms) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Please agree to the terms and conditions'),
+        backgroundColor: Color(0xFFEF4444),
+      ),
+    );
   }
+}
+
 
   Future<void> _launchTerms() async {
     const url = 'https://example.com/terms';
@@ -2783,8 +2839,10 @@ class _SettingsScreenState extends State<SettingsScreen>
               child: Text('Cancel'),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.of(context).pop();
+                final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('isLoggedIn', false);
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(
                     builder: (context) =>
@@ -4265,67 +4323,86 @@ class WaterTankPainter extends CustomPainter {
       oldDelegate.bubbleOffset != bubbleOffset;
 }
 
+
 class OtpVerificationPage extends StatefulWidget {
-  final String email; // if you want to pass email for verification
+  final String email;
+  final String name;
   final Function(ThemeMode) onThemeChanged;
-  const OtpVerificationPage({super.key, required this.email, required this.onThemeChanged,});
+
+  const OtpVerificationPage({
+    super.key,
+    required this.email,
+    required this.name,
+    required this.onThemeChanged,
+  });
 
   @override
-  State<OtpVerificationPage> createState() => _OtpVerificationPageState();
+  _OtpVerificationPageState createState() => _OtpVerificationPageState();
 }
 
 class _OtpVerificationPageState extends State<OtpVerificationPage> {
-  final TextEditingController _otpController = TextEditingController();
+  final _otpController = TextEditingController();
   bool _isVerifying = false;
 
   Future<void> verifyOtp() async {
+    final otp = _otpController.text.trim();
     setState(() => _isVerifying = true);
 
-    final enteredOtp = _otpController.text.trim();
-
-    // Simulated OTP check — replace this with actual API call
-    await Future.delayed(const Duration(seconds: 1));
-
-    if (enteredOtp == "123456") {
-
-      final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isRegistered', true);
-
-      // ✅ OTP matched, go to Bluetooth page
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => BluetoothDevicePage(onThemeChanged: widget.onThemeChanged)),
+    try {
+      final session = await supabase.auth.verifyOTP(
+        type: OtpType.email,
+        token: otp,
+        email: widget.email,
       );
-    } else {
+
+      final user = session.user;
+
+      if (user != null) {
+        // Insert into custom users table
+        await supabase.from('users').insert({
+          'id': user.id,
+          'name': widget.name,
+          'email': widget.email,
+          // esp_id will auto-generate if set as default gen_random_uuid()
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("✅ OTP Verified!")),
+        );
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                BluetoothDevicePage(onThemeChanged: widget.onThemeChanged),
+          ),
+        );
+      }
+    } catch (e) {
+      print("❌ Error during OTP verification: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("❌ Invalid OTP"),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text("❌ Invalid OTP"), backgroundColor: Colors.red),
       );
+    } finally {
+      setState(() => _isVerifying = false);
     }
-
-    setState(() => _isVerifying = false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Verify OTP"),
-        backgroundColor: const Color(0xFF4689C8),
-      ),
+      appBar: AppBar(title: const Text("Verify Email")),
       body: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              "Enter the 6-digit OTP sent to your email",
-              style: TextStyle(fontSize: 16),
+            Text(
+              "Enter the OTP sent to ${widget.email}",
               textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             TextField(
               controller: _otpController,
               keyboardType: TextInputType.number,
@@ -4333,7 +4410,6 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
               decoration: const InputDecoration(
                 labelText: "OTP",
                 border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock),
               ),
             ),
             const SizedBox(height: 24),
@@ -4342,18 +4418,12 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
               child: ElevatedButton(
                 onPressed: _isVerifying ? null : verifyOtp,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4689C8),
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                  backgroundColor: const Color(0xFF4689C8),
                 ),
                 child: _isVerifying
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
-                        "Verify",
-                        style: TextStyle(fontSize: 16),
-                      ),
+                    : const Text("Verify"),
               ),
             ),
           ],
@@ -4362,3 +4432,5 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
     );
   }
 }
+
+
