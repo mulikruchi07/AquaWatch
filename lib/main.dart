@@ -10,6 +10,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart'; // Corrected import
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
+import 'dart:async'; // Import for StreamSubscription
 
 // Initialize Supabase client
 final supabase = SupabaseClient(
@@ -292,15 +293,41 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  Future<void> _testLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    // ignore: use_build_context_synchronously
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            MainScreen(onThemeChanged: widget.onThemeChanged),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(1.0, 0.0),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFF5F9FF), Color(0xFFE6F0FA)],
+            colors: isDark
+                ? const [Color(0xFF1E293B), Color(0xFF334155)]
+                : const [Color(0xFFF5F9FF), Color(0xFFE6F0FA)],
           ),
         ),
         child: SafeArea(
@@ -311,14 +338,36 @@ class _LoginScreenState extends State<LoginScreen>
               child: Column(
                 children: [
                   const SizedBox(height: 40),
-                  _buildHeader(),
+                  _buildHeader(isDark),
                   const SizedBox(height: 40), // Reduced from 60
-                  _buildLoginForm(),
+                  _buildLoginForm(isDark),
                   const SizedBox(height: 20), // Reduced from 30
-                  _buildSignUpPrompt(),
-                  // Removed the "Skip Login (For Testing)" button from here
-                  const SizedBox(height: 20), // Added space for the new button
-                  _buildTestDashboardButton(), // New test button
+                  _buildSignUpPrompt(isDark),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: _testLogin,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF4689C8),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Test Login (Skip Auth)',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -328,7 +377,7 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -377,18 +426,21 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Text(
+                Text(
                   'Welcome!',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF1F2937),
+                    color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Login to your account',
-                  style: TextStyle(fontSize: 16, color: Color(0xFF6B7280)),
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+                  ),
                 ),
               ],
             ),
@@ -398,8 +450,7 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  // In _buildLoginForm(), replace with this corrected version:
-  Widget _buildLoginForm() {
+  Widget _buildLoginForm(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -431,21 +482,29 @@ class _LoginScreenState extends State<LoginScreen>
                 children: [
                   TextFormField(
                     controller: _emailController,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
                     decoration: InputDecoration(
                       labelText: 'Username',
+                      labelStyle: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: isDark
+                          ? const Color(0xFF475569).withOpacity(0.3)
+                          : Colors.white,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 14,
                       ),
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         Icons.person,
-                        color: Color(0xFF1791C8),
+                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                       ),
                     ),
                     validator: (value) {
@@ -459,28 +518,36 @@ class _LoginScreenState extends State<LoginScreen>
                   TextFormField(
                     controller: _passwordController,
                     obscureText: !_isPasswordVisible,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
                     decoration: InputDecoration(
                       labelText: 'Password',
+                      labelStyle: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: isDark
+                          ? const Color(0xFF475569).withOpacity(0.3)
+                          : Colors.white,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 14,
                       ),
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         Icons.lock,
-                        color: Color(0xFF1791C8),
+                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible
                               ? Icons.visibility
                               : Icons.visibility_off,
-                          color: const Color(0xFF1791C8), // Fixed this line
+                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                         ),
                         onPressed: () {
                           setState(() {
@@ -504,9 +571,11 @@ class _LoginScreenState extends State<LoginScreen>
                     alignment: Alignment.centerRight,
                     child: TextButton(
                       onPressed: () {},
-                      child: const Text(
+                      child: Text(
                         'Forgot Password?',
-                        style: TextStyle(color: Color(0xFF1791C8)),
+                        style: TextStyle(
+                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        ),
                       ),
                     ),
                   ),
@@ -517,7 +586,9 @@ class _LoginScreenState extends State<LoginScreen>
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _login,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1791C8),
+                        backgroundColor: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -553,7 +624,7 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildSignUpPrompt() {
+  Widget _buildSignUpPrompt(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -569,9 +640,11 @@ class _LoginScreenState extends State<LoginScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
+              Text(
                 "Don't have an account? ",
-                style: TextStyle(color: Color(0xFF6B7280)),
+                style: TextStyle(
+                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+                ),
               ),
               TextButton(
                 onPressed: () {
@@ -593,10 +666,10 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                   );
                 },
-                child: const Text(
+                child: Text(
                   'Sign Up',
                   style: TextStyle(
-                    color: Color(0xFF1791C8),
+                    color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -605,42 +678,6 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         );
       },
-    );
-  }
-
-  // New method for the testing button
-  Widget _buildTestDashboardButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: ElevatedButton(
-        onPressed: () async {
-          // For testing purposes, set isLoggedIn to true
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('isLoggedIn', true);
-          // Navigate directly to MainScreen (Dashboard)
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => MainScreen(onThemeChanged: widget.onThemeChanged),
-            ),
-          );
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.orange, // Distinct color for testing button
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          elevation: 0,
-        ),
-        child: const Text(
-          'Skip Login (For Testing)',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
     );
   }
 }
@@ -783,13 +820,17 @@ class _RegisterScreenState extends State<RegisterScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFF5F9FF), Color(0xFFE6F0FA)],
+            colors: isDark
+                ? const [Color(0xFF1E293B), Color(0xFF334155)]
+                : const [Color(0xFFF5F9FF), Color(0xFFE6F0FA)],
           ),
         ),
         child: SafeArea(
@@ -800,11 +841,11 @@ class _RegisterScreenState extends State<RegisterScreen>
               child: Column(
                 children: [
                   const SizedBox(height: 20),
-                  _buildHeader(),
+                  _buildHeader(isDark),
                   const SizedBox(height: 30),
-                  _buildRegisterForm(),
+                  _buildRegisterForm(isDark),
                   const SizedBox(height: 20),
-                  _buildSignInPrompt(),
+                  _buildSignInPrompt(isDark),
                 ],
               ),
             ),
@@ -814,7 +855,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -846,9 +887,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                   children: [
                     IconButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.arrow_back,
-                        color: Color(0xFF1F2937),
+                        color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
                       ),
                     ),
                     const Spacer(),
@@ -875,18 +916,21 @@ class _RegisterScreenState extends State<RegisterScreen>
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Text(
+                Text(
                   'Welcome!',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF1F2937),
+                    color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Create our account',
-                  style: TextStyle(fontSize: 16, color: Color(0xFF6B7280)),
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+                  ),
                 ),
               ],
             ),
@@ -896,8 +940,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     );
   }
 
-  // In _buildRegisterForm(), replace with this corrected version:
-  Widget _buildRegisterForm() {
+  Widget _buildRegisterForm(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -929,21 +972,29 @@ class _RegisterScreenState extends State<RegisterScreen>
                 children: [
                   TextFormField(
                     controller: _nameController,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
                     decoration: InputDecoration(
                       labelText: 'Username',
+                      labelStyle: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: isDark
+                          ? const Color(0xFF475569).withOpacity(0.3)
+                          : Colors.white,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 14,
                       ),
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         Icons.person,
-                        color: Color(0xFF1791C8),
+                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                       ),
                     ),
                     validator: (value) {
@@ -957,21 +1008,29 @@ class _RegisterScreenState extends State<RegisterScreen>
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
                     decoration: InputDecoration(
                       labelText: 'Email',
+                      labelStyle: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: isDark
+                          ? const Color(0xFF475569).withOpacity(0.3)
+                          : Colors.white,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 14,
                       ),
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         Icons.email,
-                        color: Color(0xFF1791C8),
+                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                       ),
                     ),
                     validator: (value) {
@@ -990,28 +1049,36 @@ class _RegisterScreenState extends State<RegisterScreen>
                   TextFormField(
                     controller: _passwordController,
                     obscureText: !_isPasswordVisible,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
                     decoration: InputDecoration(
                       labelText: 'Password',
+                      labelStyle: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: isDark
+                          ? const Color(0xFF475569).withOpacity(0.3)
+                          : Colors.white,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 14,
                       ),
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         Icons.lock,
-                        color: Color(0xFF1791C8),
+                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible
                               ? Icons.visibility
                               : Icons.visibility_off,
-                          color: const Color(0xFF1791C8), // Fixed this line
+                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                         ),
                         onPressed: () {
                           setState(() {
@@ -1043,27 +1110,35 @@ class _RegisterScreenState extends State<RegisterScreen>
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: !_isConfirmPasswordVisible,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
                     decoration: InputDecoration(
                       labelText: 'Confirm Password',
+                      labelStyle: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: isDark
+                          ? const Color(0xFF475569).withOpacity(0.3)
+                          : Colors.white,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 14,
                       ),
-                      prefixIcon: const Icon(
+                      prefixIcon: Icon(
                         Icons.lock,
-                        color: Color(0xFF1791C8),
+                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isConfirmPasswordVisible
                               ? Icons.visibility
                               : Icons.visibility_off,
-                          color: const Color(0xFF1791C8),
+                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                         ),
                         onPressed: () {
                           setState(() {
@@ -1093,15 +1168,16 @@ class _RegisterScreenState extends State<RegisterScreen>
                             _agreeToTerms = value!;
                           });
                         },
-                        activeColor: const Color(0xFF1791C8),
+                        activeColor: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        checkColor: isDark ? Colors.black : Colors.white,
                       ),
                       Expanded(
                         child: GestureDetector(
                           onTap: _launchTerms,
-                          child: const Text(
+                          child: Text(
                             'I agree to the Terms and Conditions',
                             style: TextStyle(
-                              color: Color(0xFF1791C8),
+                              color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                               decoration: TextDecoration.underline,
                             ),
                           ),
@@ -1116,7 +1192,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _register,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1791C8),
+                        backgroundColor: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -1152,7 +1230,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     );
   }
 
-  Widget _buildSignInPrompt() {
+  Widget _buildSignInPrompt(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -1168,16 +1246,18 @@ class _RegisterScreenState extends State<RegisterScreen>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
+              Text(
                 "Already have an account? ",
-                style: TextStyle(color: Color(0xFF6B7280)),
+                style: TextStyle(
+                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+                ),
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text(
+                child: Text(
                   'Sign In',
                   style: TextStyle(
-                    color: Color(0xFF1791C8),
+                    color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1230,24 +1310,93 @@ class _TankSetupScreenState extends State<TankSetupScreen>
       setState(() {
         _isLoading = true;
       });
-      await Future.delayed(const Duration(seconds: 1));
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isTankSetupDone', true);
-      setState(() {
-        _isLoading = false;
-      });
+      try {
+        final double height = double.parse(_heightController.text);
+        final double capacity = double.parse(_capacityController.text);
+        final user = supabase.auth.currentUser;
 
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              MainScreen(onThemeChanged: widget.onThemeChanged),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          transitionDuration: const Duration(milliseconds: 500),
-        ),
-      );
+        if (user != null) {
+          // Fetch the esp_id associated with the current user
+          final userResponse = await supabase
+              .from('users')
+              .select('esp_id')
+              .eq('id', user.id)
+              .single();
+
+          final String? espId = userResponse['esp_id'];
+
+          if (espId != null) {
+            // Check if an entry for this esp_id already exists in esp_data
+            final existingEspData = await supabase
+                .from('esp_data')
+                .select('id')
+                .eq('esp_id', espId)
+                .maybeSingle();
+
+            if (existingEspData != null) {
+              // Update existing entry
+              await supabase.from('esp_data').update({
+                'tank_height': height,
+                'tank_capacity': capacity,
+              }).eq('esp_id', espId);
+            } else {
+              // Insert new entry
+              await supabase.from('esp_data').insert({
+                'esp_id': espId,
+                'tank_height': height,
+                'tank_capacity': capacity,
+                'tds_value': 0.0, // Default values
+                'water_level': 0.0, // Default values
+                'created_at': DateTime.now().toIso8601String(),
+              });
+            }
+
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('isTankSetupDone', true);
+
+            // ignore: use_build_context_synchronously
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Tank details saved successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+
+            // ignore: use_build_context_synchronously
+            Navigator.of(context).pushReplacement(
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    MainScreen(onThemeChanged: widget.onThemeChanged),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) {
+                      return FadeTransition(opacity: animation, child: child);
+                    },
+                transitionDuration: const Duration(milliseconds: 500),
+              ),
+            );
+          } else {
+            throw Exception('ESP ID not found for the current user.');
+          }
+        } else {
+          throw Exception('User not logged in.');
+        }
+      } catch (e) {
+        // ignore: avoid_print
+        print('Error saving tank details: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to save tank details: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -1277,9 +1426,9 @@ class _TankSetupScreenState extends State<TankSetupScreen>
               child: Column(
                 children: [
                   const SizedBox(height: 20),
-                  _buildHeader(),
+                  _buildHeader(isDark),
                   const SizedBox(height: 40),
-                  _buildTankForm(),
+                  _buildTankForm(isDark),
                 ],
               ),
             ),
@@ -1289,7 +1438,7 @@ class _TankSetupScreenState extends State<TankSetupScreen>
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -1338,12 +1487,12 @@ class _TankSetupScreenState extends State<TankSetupScreen>
                   ),
                 ),
                 const SizedBox(height: 20),
-                const Text(
+                Text(
                   'Tank Setup',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: isDark ? Colors.white : const Color(0xFF1F2937),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1351,7 +1500,7 @@ class _TankSetupScreenState extends State<TankSetupScreen>
                   'Configure your water tank details',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.white.withOpacity(0.8),
+                    color: isDark ? Colors.white.withOpacity(0.8) : const Color(0xFF6B7280),
                   ),
                 ),
               ],
@@ -1362,7 +1511,7 @@ class _TankSetupScreenState extends State<TankSetupScreen>
     );
   }
 
-  Widget _buildTankForm() {
+  Widget _buildTankForm(bool isDark) {
     return AnimatedBuilder(
       animation: _animationController,
       builder: (context, child) {
@@ -1405,11 +1554,11 @@ class _TankSetupScreenState extends State<TankSetupScreen>
                 key: _formKey,
                 child: Column(
                   children: [
-                    _buildHeightField(),
+                    _buildHeightField(isDark),
                     const SizedBox(height: 20),
-                    _buildCapacityField(),
+                    _buildCapacityField(isDark),
                     const SizedBox(height: 30),
-                    _buildSubmitButton(),
+                    _buildSubmitButton(isDark),
                   ],
                 ),
               ),
@@ -1420,16 +1569,25 @@ class _TankSetupScreenState extends State<TankSetupScreen>
     );
   }
 
-  Widget _buildHeightField() {
+  Widget _buildHeightField(bool isDark) {
     return TextFormField(
       controller: _heightController,
       keyboardType: TextInputType.number,
+      style: TextStyle(
+        color: isDark ? Colors.white : Colors.black,
+      ),
       decoration: InputDecoration(
         labelText: 'Tank Height (cm)',
-        prefixIcon: const Icon(Icons.height),
+        labelStyle: TextStyle(
+          color: isDark ? Colors.white70 : Colors.black54,
+        ),
+        prefixIcon: Icon(
+          Icons.height,
+          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+        ),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
-        fillColor: Theme.of(context).brightness == Brightness.dark
+        fillColor: isDark
             ? const Color(0xFF475569).withOpacity(0.3)
             : const Color(0xFFF8FAFC),
       ),
@@ -1445,16 +1603,25 @@ class _TankSetupScreenState extends State<TankSetupScreen>
     );
   }
 
-  Widget _buildCapacityField() {
+  Widget _buildCapacityField(bool isDark) {
     return TextFormField(
       controller: _capacityController,
       keyboardType: TextInputType.number,
+      style: TextStyle(
+        color: isDark ? Colors.white : Colors.black,
+      ),
       decoration: InputDecoration(
         labelText: 'Tank Capacity (L)',
-        prefixIcon: const Icon(Icons.water_drop),
+        labelStyle: TextStyle(
+          color: isDark ? Colors.white70 : Colors.black54,
+        ),
+        prefixIcon: Icon(
+          Icons.water_drop,
+          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+        ),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
-        fillColor: Theme.of(context).brightness == Brightness.dark
+        fillColor: isDark
             ? const Color(0xFF475569).withOpacity(0.3)
             : const Color(0xFFF8FAFC),
       ),
@@ -1470,14 +1637,16 @@ class _TankSetupScreenState extends State<TankSetupScreen>
     );
   }
 
-  Widget _buildSubmitButton() {
+  Widget _buildSubmitButton(bool isDark) {
     return SizedBox(
       width: double.infinity,
       height: 50,
       child: ElevatedButton(
         onPressed: _isLoading ? null : _submitTankDetails,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF4689C8),
+          backgroundColor: isDark
+              ? const Color(0xFF60A5FA)
+              : const Color(0xFF4689C8),
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -1601,6 +1770,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   double _tdsValue = 0.0;
   double _waterLevel = 0.0; // Water level as a percentage (0.0 to 1.0)
   String? _espId;
+  double _tankCapacity = 1000.0; // Default tank capacity
 
   @override
   void initState() {
@@ -1623,28 +1793,61 @@ class _DashboardScreenState extends State<DashboardScreen>
     try {
       final user = supabase.auth.currentUser;
       if (user != null) {
-        final response = await supabase
+        final userResponse = await supabase
             .from('users')
             .select('esp_id')
             .eq('id', user.id)
             .single();
         setState(() {
-          _espId = response['esp_id'];
+          _espId = userResponse['esp_id'];
         });
-        _listenToEspData();
+
+        if (_espId != null) {
+          final espDataResponse = await supabase
+              .from('esp_data')
+              .select('tds_value, water_level, tank_capacity')
+              .eq('esp_id', _espId)
+              .order('created_at', ascending: false)
+              .limit(1)
+              .maybeSingle(); // Use maybeSingle for potentially no data
+
+          if (espDataResponse != null) {
+            setState(() {
+              _tdsValue =
+                  (espDataResponse['tds_value'] as num?)?.toDouble() ?? 0.0;
+              _waterLevel =
+                  (espDataResponse['water_level'] as num?)?.toDouble() ?? 0.0;
+              _tankCapacity =
+                  (espDataResponse['tank_capacity'] as num?)?.toDouble() ??
+                      1000.0; // Default if null
+            });
+          }
+          _listenToEspData();
+        } else {
+          // ignore: avoid_print
+          print('ESP ID is null for the current user.');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ESP ID not found for your account.')),
+          );
+        }
       } else {
-        // For testing purposes without login, simulate an esp_id
+        // For testing purposes without login, simulate an esp_id and data
         setState(() {
           _espId = '001'; // Default ESP ID for testing
+          _tdsValue = 150.0;
+          _waterLevel = 0.5;
+          _tankCapacity = 1000.0;
         });
         _listenToEspData();
       }
     } catch (e) {
       // ignore: avoid_print
-      print('Error fetching ESP ID: $e');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error fetching ESP ID: $e')));
+      print('Error fetching ESP ID or data: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error fetching data: $e')));
+      }
     }
   }
 
@@ -1659,9 +1862,12 @@ class _DashboardScreenState extends State<DashboardScreen>
           .listen((List<Map<String, dynamic>> data) {
             if (data.isNotEmpty) {
               setState(() {
-                _tdsValue = (data[0]['tds_value'] as num?)?.toDouble() ?? 0.0;
+                _tdsValue = (data[0]['tds_value'] as num?)?.toDouble() ?? _tdsValue;
                 _waterLevel =
-                    (data[0]['water_level'] as num?)?.toDouble() ?? 0.0;
+                    (data[0]['water_level'] as num?)?.toDouble() ?? _waterLevel;
+                _tankCapacity =
+                    (data[0]['tank_capacity'] as num?)?.toDouble() ??
+                        _tankCapacity;
               });
             }
           });
@@ -1700,7 +1906,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 child: Column(
                   children: [
                     _buildAnimatedCard(
-                      TankStatusCard(isDark: isDark, waterLevel: _waterLevel),
+                      TankStatusCard(isDark: isDark, waterLevel: _waterLevel, totalCapacity: _tankCapacity),
                       0,
                     ),
                     const SizedBox(height: 16),
@@ -1711,7 +1917,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     const SizedBox(height: 16),
                     _buildAnimatedCard(ValveControlCard(isDark: isDark), 2),
                     const SizedBox(height: 16),
-                    _buildAnimatedCard(_buildSystemAlerts(), 3),
+                    _buildAnimatedCard(_buildSystemAlerts(isDark), 3),
                     const SizedBox(height: 100),
                   ],
                 ),
@@ -1819,9 +2025,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildSystemAlerts() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+  Widget _buildSystemAlerts(bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1971,11 +2175,13 @@ class _DashboardScreenState extends State<DashboardScreen>
 class TankStatusCard extends StatefulWidget {
   final bool isDark;
   final double waterLevel; // Water level from 0.0 to 1.0
+  final double totalCapacity; // Total tank capacity in liters
 
   const TankStatusCard({
     super.key,
     required this.isDark,
     required this.waterLevel,
+    this.totalCapacity = 1000.0, // Default to 1000L if not provided
   });
 
   @override
@@ -2028,6 +2234,8 @@ class _TankStatusCardState extends State<TankStatusCard>
 
   @override
   Widget build(BuildContext context) {
+    final currentLiters = (widget.waterLevel * widget.totalCapacity).toInt();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2109,7 +2317,7 @@ class _TankStatusCardState extends State<TankStatusCard>
         const SizedBox(height: 24),
         _buildInfoRow(
           'Current Level:',
-          '${(widget.waterLevel * 1000).toInt()}L / 1000L',
+          '${currentLiters}L / ${widget.totalCapacity.toInt()}L',
         ),
       ],
     );
@@ -2316,6 +2524,8 @@ class WaterQualityCard extends StatelessWidget {
   }
 }
 
+enum ValveMode { auto, manual }
+
 class ValveControlCard extends StatefulWidget {
   final bool isDark;
 
@@ -2328,7 +2538,8 @@ class ValveControlCard extends StatefulWidget {
 class _ValveControlCardState extends State<ValveControlCard>
     with TickerProviderStateMixin {
   late AnimationController _flowController;
-  bool isValveOpen = true;
+  ValveMode _currentMode = ValveMode.auto;
+  bool _isManualValveOpen = false; // State for manual control
 
   @override
   void initState() {
@@ -2337,7 +2548,8 @@ class _ValveControlCardState extends State<ValveControlCard>
       duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
-    if (isValveOpen) {
+    // Start animation if in auto mode or if manual valve is initially open
+    if (_currentMode == ValveMode.auto || _isManualValveOpen) {
       _flowController.repeat();
     }
   }
@@ -2346,6 +2558,24 @@ class _ValveControlCardState extends State<ValveControlCard>
   void dispose() {
     _flowController.dispose();
     super.dispose();
+  }
+
+  void _toggleManualValve(bool isOn) {
+    setState(() {
+      _isManualValveOpen = isOn;
+      if (isOn) {
+        _flowController.repeat();
+      } else {
+        _flowController.stop();
+      }
+    });
+    // In a real app, send command to ESP32 here
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Valve turned ${isOn ? "ON" : "OFF"} manually'),
+        backgroundColor: isOn ? Colors.green : Colors.red,
+      ),
+    );
   }
 
   @override
@@ -2374,14 +2604,20 @@ class _ValveControlCardState extends State<ValveControlCard>
                 ),
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.smart_toy, size: 14, color: Color(0xFF16A34A)),
-                  SizedBox(width: 4),
+                  Icon(
+                    _currentMode == ValveMode.auto
+                        ? Icons.smart_toy
+                        : Icons.handyman,
+                    size: 14,
+                    color: const Color(0xFF16A34A),
+                  ),
+                  const SizedBox(width: 4),
                   Text(
-                    'Auto Mode',
-                    style: TextStyle(
+                    _currentMode == ValveMode.auto ? 'Auto Mode' : 'Manual Mode',
+                    style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: Color(0xFF16A34A),
@@ -2396,6 +2632,53 @@ class _ValveControlCardState extends State<ValveControlCard>
         Center(
           child: Column(
             children: [
+              // Mode Toggle
+              SegmentedButton<ValveMode>(
+                segments: const <ButtonSegment<ValveMode>>[
+                  ButtonSegment<ValveMode>(
+                    value: ValveMode.auto,
+                    label: Text('Auto'),
+                    icon: Icon(Icons.auto_mode),
+                  ),
+                  ButtonSegment<ValveMode>(
+                    value: ValveMode.manual,
+                    label: Text('Manual'),
+                    icon: Icon(Icons.tune),
+                  ),
+                ],
+                selected: <ValveMode>{_currentMode},
+                onSelectionChanged: (Set<ValveMode> newSelection) {
+                  setState(() {
+                    _currentMode = newSelection.first;
+                    if (_currentMode == ValveMode.auto) {
+                      _flowController.repeat(); // Assume auto mode means open
+                    } else {
+                      // In manual mode, stop animation if valve is off
+                      if (!_isManualValveOpen) {
+                        _flowController.stop();
+                      } else {
+                        _flowController.repeat(); // Keep animating if manually on
+                      }
+                    }
+                  });
+                },
+                style: SegmentedButton.styleFrom(
+                  selectedBackgroundColor: widget.isDark
+                      ? const Color(0xFF60A5FA)
+                      : const Color(0xFF4689C8),
+                  selectedForegroundColor: Colors.white,
+                  foregroundColor: widget.isDark
+                      ? const Color(0xFF94A3B8)
+                      : const Color(0xFF6B7280),
+                  side: BorderSide(
+                    color: widget.isDark
+                        ? const Color(0xFF475569)
+                        : const Color(0xFFD1D5DB),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
               Stack(
                 alignment: Alignment.center,
                 children: [
@@ -2414,7 +2697,7 @@ class _ValveControlCardState extends State<ValveControlCard>
                       color: Color(0xFF16A34A),
                     ),
                   ),
-                  if (isValveOpen)
+                  if (_currentMode == ValveMode.auto || _isManualValveOpen)
                     AnimatedBuilder(
                       animation: _flowController,
                       builder: (context, child) {
@@ -2469,15 +2752,72 @@ class _ValveControlCardState extends State<ValveControlCard>
               ),
               const SizedBox(height: 4),
               Text(
-                isValveOpen ? 'OPEN' : 'CLOSED',
+                _currentMode == ValveMode.auto
+                    ? 'AUTO'
+                    : (_isManualValveOpen ? 'OPEN' : 'CLOSED'),
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: isValveOpen
+                  color: (_currentMode == ValveMode.auto || _isManualValveOpen)
                       ? const Color(0xFF16A34A)
                       : const Color(0xFFDC2626),
                 ),
               ),
+              const SizedBox(height: 20),
+
+              if (_currentMode == ValveMode.manual)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _toggleManualValve(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isManualValveOpen
+                              ? const Color(0xFF16A34A)
+                              : (widget.isDark
+                                  ? const Color(0xFF475569)
+                                  : const Color(0xFFE0E7FF)),
+                          foregroundColor: _isManualValveOpen
+                              ? Colors.white
+                              : (widget.isDark
+                                  ? Colors.white70
+                                  : const Color(0xFF4689C8)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: const Text('ON'),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => _toggleManualValve(false),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: !_isManualValveOpen
+                              ? const Color(0xFFDC2626)
+                              : (widget.isDark
+                                  ? const Color(0xFF475569)
+                                  : const Color(0xFFE0E7FF)),
+                          foregroundColor: !_isManualValveOpen
+                              ? Colors.white
+                              : (widget.isDark
+                                  ? Colors.white70
+                                  : const Color(0xFFDC2626)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: const Text('OFF'),
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -2693,15 +3033,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
             isDark: isDark,
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildStatCard(
-            icon: Icons.thermostat,
-            value: '22°C',
-            label: 'Temperature',
-            isDark: isDark,
-          ),
-        ),
       ],
     );
   }
@@ -2731,11 +3062,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
               ),
               borderRadius: BorderRadius.circular(18),
             ),
-            child: const Icon(
-              Icons.lock,
-              color: Color(0xFF4F46E5),
+            child: Icon(
+              icon,
+              color: const Color(0xFF4F46E5),
               size: 18,
-            ), // Changed icon to lock
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -2853,7 +3184,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   late AnimationController _animationController;
   ThemeMode _selectedTheme = ThemeMode.system;
   bool notificationsEnabled = true;
-  String _selectedLanguage = 'English';
 
   String _userName = 'Loading...';
   String _userEmail = 'Loading...';
@@ -2913,30 +3243,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
   }
 
-  Future<void> _updateLanguagePreference(String language) async {
-    try {
-      // Simulate API call
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Language updated to $language'),
-            backgroundColor: const Color(0xFF16A34A),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to update language'),
-            backgroundColor: Color(0xFFEF4444),
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -2972,9 +3278,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                     const SizedBox(height: 16),
                     _buildAnimatedCard(_buildAppearanceSection(isDark), 1),
                     const SizedBox(height: 16),
-                    _buildAnimatedCard(_buildPreferencesSection(isDark), 2),
-                    const SizedBox(height: 16),
-                    _buildAnimatedCard(_buildAboutSection(context, isDark), 3),
+                    _buildAnimatedCard(_buildAboutSection(context, isDark), 2),
                     const SizedBox(height: 100),
                   ],
                 ),
@@ -3021,8 +3325,20 @@ class _SettingsScreenState extends State<SettingsScreen>
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (context) => const HelpSupportScreen(),
+                  PageRouteBuilder(
+                    pageBuilder: (context, animation, secondaryAnimation) =>
+                        const HelpSupportScreen(),
+                    transitionsBuilder:
+                        (context, animation, secondaryAnimation, child) {
+                          return SlideTransition(
+                            position: Tween<Offset>(
+                              begin: const Offset(1.0, 0.0),
+                              end: Offset.zero,
+                            ).animate(animation),
+                            child: child,
+                          );
+                        },
+                    transitionDuration: const Duration(milliseconds: 300),
                   ),
                 );
               },
@@ -3100,8 +3416,20 @@ class _SettingsScreenState extends State<SettingsScreen>
         _buildSettingsButton('Account Settings', Icons.person_outline, () {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (context) => const AccountSettingsScreen(),
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  const AccountSettingsScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    return SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(1.0, 0.0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    );
+                  },
+              transitionDuration: const Duration(milliseconds: 300),
             ),
           ).then((_) {
             // Refresh user data when returning from Account Settings
@@ -3114,8 +3442,20 @@ class _SettingsScreenState extends State<SettingsScreen>
           () {
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => const PrivacySecurityScreen(),
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const PrivacySecurityScreen(),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) {
+                      return SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(1.0, 0.0),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      );
+                    },
+                transitionDuration: const Duration(milliseconds: 300),
               ),
             );
           },
@@ -3175,39 +3515,45 @@ class _SettingsScreenState extends State<SettingsScreen>
           ),
         ),
         const SizedBox(height: 16),
-        const Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Theme',
-              style: TextStyle(fontSize: 16, color: Color(0xFF1F2937)),
-            ),
-          ],
+        Text(
+          'Theme',
+          style: TextStyle(
+            fontSize: 16,
+            color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
+          ),
         ),
         const SizedBox(height: 16),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _buildThemeOption(
-              context,
-              'Light',
-              Icons.wb_sunny,
-              ThemeMode.light,
-              isDark,
+            Expanded(
+              child: _buildThemeOption(
+                context,
+                'Light',
+                Icons.wb_sunny,
+                ThemeMode.light,
+                isDark,
+              ),
             ),
-            _buildThemeOption(
-              context,
-              'Dark',
-              Icons.nightlight_round,
-              ThemeMode.dark,
-              isDark,
+            const SizedBox(width: 8), // Add spacing between options
+            Expanded(
+              child: _buildThemeOption(
+                context,
+                'Dark',
+                Icons.nightlight_round,
+                ThemeMode.dark,
+                isDark,
+              ),
             ),
-            _buildThemeOption(
-              context,
-              'System',
-              Icons.settings,
-              ThemeMode.system,
-              isDark,
+            const SizedBox(width: 8), // Add spacing between options
+            Expanded(
+              child: _buildThemeOption(
+                context,
+                'System',
+                Icons.settings,
+                ThemeMode.system,
+                isDark,
+              ),
             ),
           ],
         ),
@@ -3231,17 +3577,20 @@ class _SettingsScreenState extends State<SettingsScreen>
         widget.onThemeChanged(mode);
       },
       child: Container(
-        width: 100,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF4689C8).withOpacity(0.2)
-              : isDark
-              ? const Color(0xFF475569).withOpacity(0.5)
-              : const Color(0xFFF8FAFC),
+              ? (isDark
+                  ? const Color(0xFF60A5FA).withOpacity(0.2)
+                  : const Color(0xFF4689C8).withOpacity(0.2))
+              : (isDark
+                  ? const Color(0xFF475569).withOpacity(0.5)
+                  : const Color(0xFFF8FAFC)),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? const Color(0xFF4689C8) : Colors.transparent,
+            color: isSelected
+                ? (isDark ? const Color(0xFF60A5FA) : const Color(0xFF4689C8))
+                : Colors.transparent,
             width: 2,
           ),
         ),
@@ -3250,21 +3599,22 @@ class _SettingsScreenState extends State<SettingsScreen>
             Icon(
               icon,
               color: isSelected
-                  ? const Color(0xFF4689C8)
+                  ? (isDark ? const Color(0xFF60A5FA) : const Color(0xFF4689C8))
                   : (isDark
-                        ? const Color(0xFF94A3B8)
-                        : const Color(0xFF6B7280)),
+                      ? const Color(0xFF94A3B8)
+                      : const Color(0xFF6B7280)),
             ),
             const SizedBox(height: 8),
             Text(
               label,
               style: TextStyle(
                 color: isSelected
-                    ? const Color(0xFF4689C8)
+                    ? (isDark ? const Color(0xFF60A5FA) : const Color(0xFF4689C8))
                     : (isDark
-                          ? const Color(0xFFF1F5F9)
-                          : const Color(0xFF1F2937)),
+                        ? const Color(0xFFF1F5F9)
+                        : const Color(0xFF1F2937)),
               ),
+              textAlign: TextAlign.center, // Center text for better fit
             ),
           ],
         ),
@@ -3272,12 +3622,12 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  Widget _buildPreferencesSection(bool isDark) {
+  Widget _buildAboutSection(BuildContext context, bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Preferences',
+          'About',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w600,
@@ -3285,19 +3635,59 @@ class _SettingsScreenState extends State<SettingsScreen>
           ),
         ),
         const SizedBox(height: 16),
-        _buildDropdownSetting(
-          'Language',
-          _selectedLanguage,
-          const ['English', 'Hindi', 'Marathi'],
-          (value) {
-            setState(() {
-              _selectedLanguage = value!;
-            });
-            // Call API to update language preference
-            _updateLanguagePreference(value!);
-          },
+        _buildSettingsButton(
+          'App Version',
+          Icons.info_outline,
+          () {},
           isDark,
+          trailing: Text(
+            'v1.0.0',
+            style: TextStyle(
+              fontSize: 14,
+              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+            ),
+          ),
         ),
+        _buildSettingsButton('Terms of Service', Icons.description, () {
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  const TermsOfServiceScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    return SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(1.0, 0.0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    );
+                  },
+              transitionDuration: const Duration(milliseconds: 300),
+            ),
+          );
+        }, isDark),
+        _buildSettingsButton('Privacy Policy', Icons.privacy_tip, () {
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  const PrivacyPolicyScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    return SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(1.0, 0.0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    );
+                  },
+              transitionDuration: const Duration(milliseconds: 300),
+            ),
+          );
+        }, isDark),
       ],
     );
   }
@@ -3390,8 +3780,20 @@ class PrivacySecurityScreen extends StatelessWidget {
             _buildSecurityItem(context, 'Change Password', Icons.lock, () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const UpdatePasswordScreen(),
+                PageRouteBuilder(
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      const UpdatePasswordScreen(),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        return SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(1.0, 0.0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        );
+                      },
+                  transitionDuration: const Duration(milliseconds: 300),
                 ),
               );
             }, isDark),
@@ -3438,48 +3840,6 @@ class PrivacySecurityScreen extends StatelessWidget {
   }
 }
 
-Widget _buildAboutSection(BuildContext context, bool isDark) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        'About',
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
-        ),
-      ),
-      const SizedBox(height: 16),
-      _buildSettingsButton(
-        'App Version',
-        Icons.info_outline,
-        () {},
-        isDark,
-        trailing: Text(
-          'v1.0.0',
-          style: TextStyle(
-            fontSize: 14,
-            color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
-          ),
-        ),
-      ),
-      _buildSettingsButton('Terms of Service', Icons.description, () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const TermsOfServiceScreen()),
-        );
-      }, isDark),
-      _buildSettingsButton('Privacy Policy', Icons.privacy_tip, () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const PrivacyPolicyScreen()),
-        );
-      }, isDark),
-    ],
-  );
-}
-
 Widget _buildSettingsButton(
   String label,
   IconData icon,
@@ -3517,60 +3877,6 @@ Widget _buildSettingsButton(
     )
     );
   }
-
-Widget _buildDropdownSetting(
-  String label,
-  String value,
-  List<String> options,
-  ValueChanged<String?> onChanged,
-  bool isDark,
-) {
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
-    child: Row(
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 16,
-            color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
-          ),
-        ),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: isDark
-                ? const Color(0xFF475569).withOpacity(0.5)
-                : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: DropdownButton<String>(
-            value: value,
-            onChanged: onChanged,
-            underline: const SizedBox(),
-            icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF4689C8)),
-            dropdownColor: isDark ? const Color(0xFF334155) : Colors.white,
-            items: options.map((String option) {
-              return DropdownMenuItem<String>(
-                value: option,
-                child: Text(
-                  option,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark
-                        ? const Color(0xFFF1F5F9)
-                        : const Color(0xFF1F2937),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-      ],
-    ),
-  );
-}
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -3646,20 +3952,43 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
             _buildSettingItem(context, 'Update Password', Icons.lock, () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const UpdatePasswordScreen(),
+                PageRouteBuilder(
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      const UpdatePasswordScreen(),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        return SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(1.0, 0.0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        );
+                      },
+                  transitionDuration: const Duration(milliseconds: 300),
                 ),
               );
             }),
             const Divider(),
-            // Removed the "Change Email" ListTile
             _buildSettingItem(context, 'Change Name', Icons.person, () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => ChangeNameScreen(
+                PageRouteBuilder(
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      ChangeNameScreen(
                     currentName: _currentUserName,
                   ),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        return SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(1.0, 0.0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        );
+                      },
+                  transitionDuration: const Duration(milliseconds: 300),
                 ),
               ).then((_) => _fetchCurrentUserDetails()); // Refresh after update
             }),
@@ -3778,14 +4107,19 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
               TextFormField(
                 controller: _currentPasswordController,
                 obscureText: !_isCurrentPasswordVisible,
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Current Password',
+                  labelStyle: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
                     icon: Icon(
                       _isCurrentPasswordVisible
                           ? Icons.visibility
                           : Icons.visibility_off,
+                      color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                     ),
                     onPressed: () {
                       setState(() {
@@ -3808,14 +4142,19 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
               TextFormField(
                 controller: _newPasswordController,
                 obscureText: !_isNewPasswordVisible,
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'New Password',
+                  labelStyle: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
                     icon: Icon(
                       _isNewPasswordVisible
                           ? Icons.visibility
                           : Icons.visibility_off,
+                      color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                     ),
                     onPressed: () {
                       setState(() {
@@ -3847,14 +4186,19 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
               TextFormField(
                 controller: _confirmNewPasswordController,
                 obscureText: !_isConfirmNewPasswordVisible,
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
                 decoration: InputDecoration(
                   labelText: 'Confirm New Password',
+                  labelStyle: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
                     icon: Icon(
                       _isConfirmNewPasswordVisible
                           ? Icons.visibility
                           : Icons.visibility_off,
+                      color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
                     ),
                     onPressed: () {
                       setState(() {
@@ -3896,8 +4240,6 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
     );
   }
 }
-
-// Removed ChangeEmailScreen class entirely
 
 class ChangeNameScreen extends StatefulWidget {
   final String currentName;
@@ -3985,17 +4327,25 @@ class _ChangeNameScreenState extends State<ChangeNameScreen> {
               TextFormField(
                 initialValue: widget.currentName,
                 readOnly: true,
-                decoration: const InputDecoration(
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                decoration: InputDecoration(
                   labelText: 'Current Name',
-                  border: OutlineInputBorder(),
+                  labelStyle: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _newNameController,
-                decoration: const InputDecoration(
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                decoration: InputDecoration(
                   labelText: 'New Name',
-                  border: OutlineInputBorder(),
+                  labelStyle: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
@@ -4130,15 +4480,41 @@ class HelpSupportScreen extends StatelessWidget {
             _buildHelpItem(context, 'FAQs', Icons.help_outline, () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const FAQScreen()),
+                PageRouteBuilder(
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      const FAQScreen(),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        return SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(1.0, 0.0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        );
+                      },
+                  transitionDuration: const Duration(milliseconds: 300),
+                ),
               );
             }),
             const Divider(),
             _buildHelpItem(context, 'Contact Support', Icons.support_agent, () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const ContactSupportScreen(),
+                PageRouteBuilder(
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      const ContactSupportScreen(),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        return SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(1.0, 0.0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        );
+                      },
+                  transitionDuration: const Duration(milliseconds: 300),
                 ),
               );
             }),
@@ -4146,8 +4522,20 @@ class HelpSupportScreen extends StatelessWidget {
             _buildHelpItem(context, 'User Guide', Icons.book, () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (context) => const UserGuideScreen(),
+                PageRouteBuilder(
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      const UserGuideScreen(),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        return SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(1.0, 0.0),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        );
+                      },
+                  transitionDuration: const Duration(milliseconds: 300),
                 ),
               );
             }),
@@ -4302,11 +4690,15 @@ class ContactSupportScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            const TextField(
+            TextField(
               decoration: InputDecoration(
                 labelText: 'Your Message',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
+                labelStyle: TextStyle(
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
               ),
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
               maxLines: 5,
             ),
             const SizedBox(height: 16),
@@ -4659,14 +5051,26 @@ class BluetoothDevicePage extends StatefulWidget {
 
 class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
   List<ScanResult> scanResults = [];
+  bool _isScanning = false;
+  StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
+  StreamSubscription<bool>? _isScanningSubscription;
 
   @override
   void initState() {
     super.initState();
-    requestPermissionsAndScan();
+    _startScan(); // Directly start scanning
   }
 
-  Future<void> requestPermissionsAndScan() async {
+  @override
+  void dispose() {
+    _adapterStateSubscription?.cancel();
+    _isScanningSubscription?.cancel();
+    FlutterBluePlus.stopScan();
+    super.dispose();
+  }
+
+  void _startScan() async {
+    // Request permissions without checking status
     await [
       Permission.bluetooth,
       Permission.bluetoothScan,
@@ -4674,11 +5078,22 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
       Permission.location,
     ].request();
 
-    FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
+    // Start scanning directly
+    FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
     FlutterBluePlus.scanResults.listen((results) {
-      setState(() {
-        scanResults = results;
-      });
+      if (mounted) {
+        setState(() {
+          scanResults = results;
+        });
+      }
+    });
+
+    _isScanningSubscription = FlutterBluePlus.isScanning.listen((isScanning) {
+      if (mounted) {
+        setState(() {
+          _isScanning = isScanning;
+        });
+      }
     });
   }
 
@@ -4686,9 +5101,19 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
     try {
       // ignore: avoid_print
       print('🔗 Connecting to ${device.name}...');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connecting to ${device.name}...')),
+      );
+
       await device.connect();
       // ignore: avoid_print
       print('✔️ Connected to ${device.name}');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Connected to ${device.name}'),
+          backgroundColor: Colors.green,
+        ),
+      );
 
       List<BluetoothService> services = await device.discoverServices();
 
@@ -4711,6 +5136,7 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
       if (targetChar != null) {
         // ignore: avoid_print
         print('🎯 Characteristic found: ${targetChar.uuid}');
+        // ignore: use_build_context_synchronously
         await showWifiCredentialsDialog(
           context,
           device,
@@ -4731,7 +5157,15 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
       }
     } catch (e) {
       // ignore: avoid_print
-      print('❌ Error: $e');
+      print('❌ Error connecting to device: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Connection error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -4749,9 +5183,39 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
           backgroundColor: const Color(0xFF4689C8),
           automaticallyImplyLeading: false,
         ),
-        body: scanResults.isEmpty
-            ? const Center(child: Text('🔍 Scanning for devices...'))
-            : ListView.builder(
+        body: Column(
+          children: [
+            if (_isScanning)
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Text(
+                      'Scanning for devices...',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.blueAccent,
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.only(top: 8.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ],
+                ),
+              )
+            else if (scanResults.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(16.0),
+                child: Text(
+                  'No devices found. Tap "Scan" to retry.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, color: Colors.red),
+                ),
+              ),
+            Expanded(
+              child: ListView.builder(
                 itemCount: scanResults.length,
                 itemBuilder: (context, index) {
                   final device = scanResults[index].device;
@@ -4766,6 +5230,21 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
                   );
                 },
               ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ElevatedButton(
+                onPressed: _isScanning ? null : _startScan,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4689C8),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                child: Text(_isScanning ? 'Scanning...' : 'Scan for Devices'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4806,41 +5285,55 @@ Future<void> showWifiCredentialsDialog(
             final password = passwordController.text.trim();
             final data = "$ssid|$password";
 
-            await characteristic.write(data.codeUnits, withoutResponse: false);
-            // ignore: avoid_print
-            print('✅ Sent to ESP32: $data');
-
-            await characteristic.setNotifyValue(true);
-            characteristic.value.listen((value) {
-              final response = String.fromCharCodes(value);
+            try {
+              await characteristic.write(data.codeUnits, withoutResponse: false);
               // ignore: avoid_print
-              print("📩 Response from ESP32: $response");
+              print('✅ Sent to ESP32: $data');
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Sending Wi-Fi credentials...')),
+              );
 
-              if (response == "WIFI_OK") {
-                isWifiConnectedNotifier.value = true;
-                Navigator.of(context).pop();
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        TankSetupScreen(onThemeChanged: onThemeChanged),
-                  ),
-                );
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("✅ Wi-Fi connected!"),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } else if (response == "WIFI_FAIL") {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("❌ Wi-Fi failed!"),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            });
+              await characteristic.setNotifyValue(true);
+              characteristic.value.listen((value) {
+                final response = String.fromCharCodes(value);
+                // ignore: avoid_print
+                print("📩 Response from ESP32: $response");
+
+                if (response == "WIFI_OK") {
+                  isWifiConnectedNotifier.value = true;
+                  Navigator.of(context).pop(); // Dismiss dialog
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          TankSetupScreen(onThemeChanged: onThemeChanged),
+                    ),
+                  );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("✅ Wi-Fi connected!"),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } else if (response == "WIFI_FAIL") {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("❌ Wi-Fi failed!"),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              });
+            } catch (e) {
+              // ignore: avoid_print
+              print('Error sending Wi-Fi credentials: $e');
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error sending Wi-Fi credentials: $e'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
           },
         ),
       ],
