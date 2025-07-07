@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart'; // Corrected import
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
 import 'dart:async'; // Import for StreamSubscription
+import 'session_persistence.dart';
 
 // Initialize Supabase client
 final supabase = SupabaseClient(
@@ -21,6 +22,7 @@ ValueNotifier<bool> isWifiConnectedNotifier = ValueNotifier(false);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Ensure Flutter widgets are initialized
+  await SessionPersistence.restore(supabase);
   runApp(AquaWatchApp());
 }
 
@@ -113,18 +115,23 @@ class _InitialScreenState extends State<InitialScreen> {
       final prefs = await SharedPreferences.getInstance();
       final isRegistered = prefs.getBool('isRegistered') ?? false;
       final isTankSetupDone = prefs.getBool('isTankSetupDone') ?? false;
-      final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
 
       Widget nextScreen;
 
-      if (!isRegistered && !isLoggedIn) {
+      // THIS IS THE KEY PART: Check for an active Supabase session
+      if (supabase.auth.currentSession != null) {
+        // If a user is currently logged in with Supabase, go directly to MainScreen
+        nextScreen = MainScreen(onThemeChanged: widget.onThemeChanged);
+      } else if (!isRegistered) {
+        // If no Supabase session, then check if they've registered at all
         nextScreen = LoginScreen(onThemeChanged: widget.onThemeChanged);
-      } else if (!isTankSetupDone && !isLoggedIn) {
+      } else if (!isTankSetupDone) {
+        // If registered but tank setup isn't done
         nextScreen = BluetoothDevicePage(onThemeChanged: widget.onThemeChanged);
       } else {
+        // Fallback for registered users with tank setup done, but somehow no active session (unlikely after previous check)
         nextScreen = MainScreen(onThemeChanged: widget.onThemeChanged);
       }
-
       Navigator.of(
         context,
       ).pushReplacement(MaterialPageRoute(builder: (_) => nextScreen));
@@ -252,12 +259,11 @@ class _LoginScreenState extends State<LoginScreen>
           throw Exception('Login failed');
         }
 
-        // Optional: mark as logged in
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
+        if (loginResponse.session != null) {
+          await SessionPersistence.save(loginResponse.session);
 
-        // Step 3: Navigate to main screen
-        Navigator.of(context).pushReplacement(
+          // Step 3: Navigate to main screen
+          Navigator.of(context).pushReplacement(
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
                 MainScreen(onThemeChanged: widget.onThemeChanged),
@@ -274,7 +280,8 @@ class _LoginScreenState extends State<LoginScreen>
             transitionDuration: const Duration(milliseconds: 300),
           ),
         );
-      } catch (e) {
+      } 
+      }catch (e) {
         // ignore: avoid_print
         print('❌ Login error: $e');
         ScaffoldMessenger.of(context).showSnackBar(
@@ -294,8 +301,6 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _testLogin() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isLoggedIn', true);
     // ignore: use_build_context_synchronously
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
@@ -344,30 +349,6 @@ class _LoginScreenState extends State<LoginScreen>
                   const SizedBox(height: 20), // Reduced from 30
                   _buildSignUpPrompt(isDark),
                   const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _testLogin,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isDark
-                            ? const Color(0xFF60A5FA)
-                            : const Color(0xFF4689C8),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Test Login (Skip Auth)',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -431,7 +412,9 @@ class _LoginScreenState extends State<LoginScreen>
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
+                    color: isDark
+                        ? const Color(0xFFF1F5F9)
+                        : const Color(0xFF1F2937),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -439,7 +422,9 @@ class _LoginScreenState extends State<LoginScreen>
                   'Login to your account',
                   style: TextStyle(
                     fontSize: 16,
-                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+                    color: isDark
+                        ? const Color(0xFF94A3B8)
+                        : const Color(0xFF6B7280),
                   ),
                 ),
               ],
@@ -504,7 +489,9 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                       prefixIcon: Icon(
                         Icons.person,
-                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        color: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                       ),
                     ),
                     validator: (value) {
@@ -540,14 +527,18 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                       prefixIcon: Icon(
                         Icons.lock,
-                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        color: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible
                               ? Icons.visibility
                               : Icons.visibility_off,
-                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                          color: isDark
+                              ? const Color(0xFF60A5FA)
+                              : const Color(0xFF1791C8),
                         ),
                         onPressed: () {
                           setState(() {
@@ -574,7 +565,9 @@ class _LoginScreenState extends State<LoginScreen>
                       child: Text(
                         'Forgot Password?',
                         style: TextStyle(
-                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                          color: isDark
+                              ? const Color(0xFF60A5FA)
+                              : const Color(0xFF1791C8),
                         ),
                       ),
                     ),
@@ -643,7 +636,9 @@ class _LoginScreenState extends State<LoginScreen>
               Text(
                 "Don't have an account? ",
                 style: TextStyle(
-                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+                  color: isDark
+                      ? const Color(0xFF94A3B8)
+                      : const Color(0xFF6B7280),
                 ),
               ),
               TextButton(
@@ -669,7 +664,9 @@ class _LoginScreenState extends State<LoginScreen>
                 child: Text(
                   'Sign Up',
                   style: TextStyle(
-                    color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                    color: isDark
+                        ? const Color(0xFF60A5FA)
+                        : const Color(0xFF1791C8),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -889,7 +886,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                       onPressed: () => Navigator.of(context).pop(),
                       icon: Icon(
                         Icons.arrow_back,
-                        color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
+                        color: isDark
+                            ? const Color(0xFFF1F5F9)
+                            : const Color(0xFF1F2937),
                       ),
                     ),
                     const Spacer(),
@@ -921,7 +920,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
+                    color: isDark
+                        ? const Color(0xFFF1F5F9)
+                        : const Color(0xFF1F2937),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -929,7 +930,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                   'Create our account',
                   style: TextStyle(
                     fontSize: 16,
-                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+                    color: isDark
+                        ? const Color(0xFF94A3B8)
+                        : const Color(0xFF6B7280),
                   ),
                 ),
               ],
@@ -994,7 +997,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                       prefixIcon: Icon(
                         Icons.person,
-                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        color: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                       ),
                     ),
                     validator: (value) {
@@ -1030,7 +1035,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                       prefixIcon: Icon(
                         Icons.email,
-                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        color: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                       ),
                     ),
                     validator: (value) {
@@ -1071,14 +1078,18 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                       prefixIcon: Icon(
                         Icons.lock,
-                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        color: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible
                               ? Icons.visibility
                               : Icons.visibility_off,
-                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                          color: isDark
+                              ? const Color(0xFF60A5FA)
+                              : const Color(0xFF1791C8),
                         ),
                         onPressed: () {
                           setState(() {
@@ -1131,14 +1142,18 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                       prefixIcon: Icon(
                         Icons.lock,
-                        color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        color: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                       ),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isConfirmPasswordVisible
                               ? Icons.visibility
                               : Icons.visibility_off,
-                          color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                          color: isDark
+                              ? const Color(0xFF60A5FA)
+                              : const Color(0xFF1791C8),
                         ),
                         onPressed: () {
                           setState(() {
@@ -1168,7 +1183,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                             _agreeToTerms = value!;
                           });
                         },
-                        activeColor: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                        activeColor: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                         checkColor: isDark ? Colors.black : Colors.white,
                       ),
                       Expanded(
@@ -1177,7 +1194,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                           child: Text(
                             'I agree to the Terms and Conditions',
                             style: TextStyle(
-                              color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                              color: isDark
+                                  ? const Color(0xFF60A5FA)
+                                  : const Color(0xFF1791C8),
                               decoration: TextDecoration.underline,
                             ),
                           ),
@@ -1249,7 +1268,9 @@ class _RegisterScreenState extends State<RegisterScreen>
               Text(
                 "Already have an account? ",
                 style: TextStyle(
-                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF6B7280),
+                  color: isDark
+                      ? const Color(0xFF94A3B8)
+                      : const Color(0xFF6B7280),
                 ),
               ),
               TextButton(
@@ -1257,7 +1278,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                 child: Text(
                   'Sign In',
                   style: TextStyle(
-                    color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                    color: isDark
+                        ? const Color(0xFF60A5FA)
+                        : const Color(0xFF1791C8),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1336,10 +1359,10 @@ class _TankSetupScreenState extends State<TankSetupScreen>
 
             if (existingEspData != null) {
               // Update existing entry
-              await supabase.from('esp_data').update({
-                'tank_height': height,
-                'tank_capacity': capacity,
-              }).eq('esp_id', espId);
+              await supabase
+                  .from('esp_data')
+                  .update({'tank_height': height, 'tank_capacity': capacity})
+                  .eq('esp_id', espId);
             } else {
               // Insert new entry
               await supabase.from('esp_data').insert({
@@ -1500,7 +1523,9 @@ class _TankSetupScreenState extends State<TankSetupScreen>
                   'Configure your water tank details',
                   style: TextStyle(
                     fontSize: 16,
-                    color: isDark ? Colors.white.withOpacity(0.8) : const Color(0xFF6B7280),
+                    color: isDark
+                        ? Colors.white.withOpacity(0.8)
+                        : const Color(0xFF6B7280),
                   ),
                 ),
               ],
@@ -1573,14 +1598,10 @@ class _TankSetupScreenState extends State<TankSetupScreen>
     return TextFormField(
       controller: _heightController,
       keyboardType: TextInputType.number,
-      style: TextStyle(
-        color: isDark ? Colors.white : Colors.black,
-      ),
+      style: TextStyle(color: isDark ? Colors.white : Colors.black),
       decoration: InputDecoration(
         labelText: 'Tank Height (cm)',
-        labelStyle: TextStyle(
-          color: isDark ? Colors.white70 : Colors.black54,
-        ),
+        labelStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
         prefixIcon: Icon(
           Icons.height,
           color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
@@ -1607,14 +1628,10 @@ class _TankSetupScreenState extends State<TankSetupScreen>
     return TextFormField(
       controller: _capacityController,
       keyboardType: TextInputType.number,
-      style: TextStyle(
-        color: isDark ? Colors.white : Colors.black,
-      ),
+      style: TextStyle(color: isDark ? Colors.white : Colors.black),
       decoration: InputDecoration(
         labelText: 'Tank Capacity (L)',
-        labelStyle: TextStyle(
-          color: isDark ? Colors.white70 : Colors.black54,
-        ),
+        labelStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
         prefixIcon: Icon(
           Icons.water_drop,
           color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
@@ -1819,7 +1836,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   (espDataResponse['water_level'] as num?)?.toDouble() ?? 0.0;
               _tankCapacity =
                   (espDataResponse['tank_capacity'] as num?)?.toDouble() ??
-                      1000.0; // Default if null
+                  1000.0; // Default if null
             });
           }
           _listenToEspData();
@@ -1862,12 +1879,13 @@ class _DashboardScreenState extends State<DashboardScreen>
           .listen((List<Map<String, dynamic>> data) {
             if (data.isNotEmpty) {
               setState(() {
-                _tdsValue = (data[0]['tds_value'] as num?)?.toDouble() ?? _tdsValue;
+                _tdsValue =
+                    (data[0]['tds_value'] as num?)?.toDouble() ?? _tdsValue;
                 _waterLevel =
                     (data[0]['water_level'] as num?)?.toDouble() ?? _waterLevel;
                 _tankCapacity =
                     (data[0]['tank_capacity'] as num?)?.toDouble() ??
-                        _tankCapacity;
+                    _tankCapacity;
               });
             }
           });
@@ -1906,7 +1924,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                 child: Column(
                   children: [
                     _buildAnimatedCard(
-                      TankStatusCard(isDark: isDark, waterLevel: _waterLevel, totalCapacity: _tankCapacity),
+                      TankStatusCard(
+                        isDark: isDark,
+                        waterLevel: _waterLevel,
+                        totalCapacity: _tankCapacity,
+                      ),
                       0,
                     ),
                     const SizedBox(height: 16),
@@ -2616,7 +2638,9 @@ class _ValveControlCardState extends State<ValveControlCard>
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    _currentMode == ValveMode.auto ? 'Auto Mode' : 'Manual Mode',
+                    _currentMode == ValveMode.auto
+                        ? 'Auto Mode'
+                        : 'Manual Mode',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -2657,7 +2681,8 @@ class _ValveControlCardState extends State<ValveControlCard>
                       if (!_isManualValveOpen) {
                         _flowController.stop();
                       } else {
-                        _flowController.repeat(); // Keep animating if manually on
+                        _flowController
+                            .repeat(); // Keep animating if manually on
                       }
                     }
                   });
@@ -2776,13 +2801,13 @@ class _ValveControlCardState extends State<ValveControlCard>
                           backgroundColor: _isManualValveOpen
                               ? const Color(0xFF16A34A)
                               : (widget.isDark
-                                  ? const Color(0xFF475569)
-                                  : const Color(0xFFE0E7FF)),
+                                    ? const Color(0xFF475569)
+                                    : const Color(0xFFE0E7FF)),
                           foregroundColor: _isManualValveOpen
                               ? Colors.white
                               : (widget.isDark
-                                  ? Colors.white70
-                                  : const Color(0xFF4689C8)),
+                                    ? Colors.white70
+                                    : const Color(0xFF4689C8)),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -2800,13 +2825,13 @@ class _ValveControlCardState extends State<ValveControlCard>
                           backgroundColor: !_isManualValveOpen
                               ? const Color(0xFFDC2626)
                               : (widget.isDark
-                                  ? const Color(0xFF475569)
-                                  : const Color(0xFFE0E7FF)),
+                                    ? const Color(0xFF475569)
+                                    : const Color(0xFFE0E7FF)),
                           foregroundColor: !_isManualValveOpen
                               ? Colors.white
                               : (widget.isDark
-                                  ? Colors.white70
-                                  : const Color(0xFFDC2626)),
+                                    ? Colors.white70
+                                    : const Color(0xFFDC2626)),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -3062,11 +3087,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen>
               ),
               borderRadius: BorderRadius.circular(18),
             ),
-            child: Icon(
-              icon,
-              color: const Color(0xFF4F46E5),
-              size: 18,
-            ),
+            child: Icon(icon, color: const Color(0xFF4F46E5), size: 18),
           ),
           const SizedBox(height: 8),
           Text(
@@ -3196,6 +3217,8 @@ class _SettingsScreenState extends State<SettingsScreen>
       vsync: this,
     );
     _animationController.forward();
+
+    
     _fetchUserData(); // Fetch user data when the screen initializes
   }
 
@@ -3219,12 +3242,8 @@ class _SettingsScreenState extends State<SettingsScreen>
           _userName = response['name'] ?? 'N/A';
           _userEmail = response['email'] ?? 'N/A';
         });
-      } else {
-        setState(() {
-          _userName = 'Guest';
-          _userEmail = 'Not logged in';
-        });
       }
+
     } catch (e) {
       // ignore: avoid_print
       print('Error fetching user data: $e');
@@ -3436,31 +3455,26 @@ class _SettingsScreenState extends State<SettingsScreen>
             _fetchUserData();
           });
         }, isDark),
-        _buildSettingsButton(
-          'Privacy & Security',
-          Icons.security,
-          () {
-            Navigator.push(
-              context,
-              PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) =>
-                    const PrivacySecurityScreen(),
-                transitionsBuilder:
-                    (context, animation, secondaryAnimation, child) {
-                      return SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(1.0, 0.0),
-                          end: Offset.zero,
-                        ).animate(animation),
-                        child: child,
-                      );
-                    },
-                transitionDuration: const Duration(milliseconds: 300),
-              ),
-            );
-          },
-          isDark,
-        ),
+        _buildSettingsButton('Privacy & Security', Icons.security, () {
+          Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  const PrivacySecurityScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    return SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(1.0, 0.0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    );
+                  },
+              transitionDuration: const Duration(milliseconds: 300),
+            ),
+          );
+        }, isDark),
         _buildSettingsButton('Logout', Icons.logout, () {
           _showLogoutConfirmationDialog();
         }, isDark),
@@ -3483,9 +3497,6 @@ class _SettingsScreenState extends State<SettingsScreen>
             TextButton(
               onPressed: () async {
                 Navigator.of(context).pop();
-                await supabase.auth.signOut(); // Sign out from Supabase
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('isLoggedIn', false);
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(
                     builder: (context) =>
@@ -3493,6 +3504,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                   (route) => false,
                 );
+                await supabase.auth.signOut(); // Sign out from Supabase
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('isRegistered', false);
+                await SessionPersistence.clear();
               },
               child: const Text('Logout', style: TextStyle(color: Colors.red)),
             ),
@@ -3581,11 +3596,11 @@ class _SettingsScreenState extends State<SettingsScreen>
         decoration: BoxDecoration(
           color: isSelected
               ? (isDark
-                  ? const Color(0xFF60A5FA).withOpacity(0.2)
-                  : const Color(0xFF4689C8).withOpacity(0.2))
+                    ? const Color(0xFF60A5FA).withOpacity(0.2)
+                    : const Color(0xFF4689C8).withOpacity(0.2))
               : (isDark
-                  ? const Color(0xFF475569).withOpacity(0.5)
-                  : const Color(0xFFF8FAFC)),
+                    ? const Color(0xFF475569).withOpacity(0.5)
+                    : const Color(0xFFF8FAFC)),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected
@@ -3601,18 +3616,20 @@ class _SettingsScreenState extends State<SettingsScreen>
               color: isSelected
                   ? (isDark ? const Color(0xFF60A5FA) : const Color(0xFF4689C8))
                   : (isDark
-                      ? const Color(0xFF94A3B8)
-                      : const Color(0xFF6B7280)),
+                        ? const Color(0xFF94A3B8)
+                        : const Color(0xFF6B7280)),
             ),
             const SizedBox(height: 8),
             Text(
               label,
               style: TextStyle(
                 color: isSelected
-                    ? (isDark ? const Color(0xFF60A5FA) : const Color(0xFF4689C8))
+                    ? (isDark
+                          ? const Color(0xFF60A5FA)
+                          : const Color(0xFF4689C8))
                     : (isDark
-                        ? const Color(0xFFF1F5F9)
-                        : const Color(0xFF1F2937)),
+                          ? const Color(0xFFF1F5F9)
+                          : const Color(0xFF1F2937)),
               ),
               textAlign: TextAlign.center, // Center text for better fit
             ),
@@ -3874,9 +3891,9 @@ Widget _buildSettingsButton(
               ),
         ],
       ),
-    )
-    );
-  }
+    ),
+  );
+}
 
 class AccountSettingsScreen extends StatefulWidget {
   const AccountSettingsScreen({super.key});
@@ -3975,9 +3992,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 context,
                 PageRouteBuilder(
                   pageBuilder: (context, animation, secondaryAnimation) =>
-                      ChangeNameScreen(
-                    currentName: _currentUserName,
-                  ),
+                      ChangeNameScreen(currentName: _currentUserName),
                   transitionsBuilder:
                       (context, animation, secondaryAnimation, child) {
                         return SlideTransition(
@@ -4043,11 +4058,7 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
         // It uses the authenticated session. If you need to verify the current password,
         // you'd typically implement a separate backend function or re-authenticate the user.
         // For this example, we'll directly use updateUser.
-        await supabase.auth.updateUser(
-          UserAttributes(
-            password: newPassword,
-          ),
-        );
+        await supabase.auth.updateUser(UserAttributes(password: newPassword));
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -4119,7 +4130,9 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
                       _isCurrentPasswordVisible
                           ? Icons.visibility
                           : Icons.visibility_off,
-                      color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                      color: isDark
+                          ? const Color(0xFF60A5FA)
+                          : const Color(0xFF1791C8),
                     ),
                     onPressed: () {
                       setState(() {
@@ -4154,7 +4167,9 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
                       _isNewPasswordVisible
                           ? Icons.visibility
                           : Icons.visibility_off,
-                      color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                      color: isDark
+                          ? const Color(0xFF60A5FA)
+                          : const Color(0xFF1791C8),
                     ),
                     onPressed: () {
                       setState(() {
@@ -4198,7 +4213,9 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
                       _isConfirmNewPasswordVisible
                           ? Icons.visibility
                           : Icons.visibility_off,
-                      color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF1791C8),
+                      color: isDark
+                          ? const Color(0xFF60A5FA)
+                          : const Color(0xFF1791C8),
                     ),
                     onPressed: () {
                       setState(() {
@@ -4272,7 +4289,10 @@ class _ChangeNameScreenState extends State<ChangeNameScreen> {
         final user = supabase.auth.currentUser;
 
         if (user != null) {
-          await supabase.from('users').update({'name': newName}).eq('id', user.id);
+          await supabase
+              .from('users')
+              .update({'name': newName})
+              .eq('id', user.id);
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -4750,7 +4770,7 @@ class ContactSupportScreen extends StatelessWidget {
             ),
           ],
         ),
-      ]
+      ],
     );
   }
 }
@@ -5193,10 +5213,7 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
                     Text(
                       'Scanning for devices...',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.blueAccent,
-                      ),
+                      style: TextStyle(fontSize: 16, color: Colors.blueAccent),
                     ),
                     Padding(
                       padding: EdgeInsets.only(top: 8.0),
@@ -5286,7 +5303,10 @@ Future<void> showWifiCredentialsDialog(
             final data = "$ssid|$password";
 
             try {
-              await characteristic.write(data.codeUnits, withoutResponse: false);
+              await characteristic.write(
+                data.codeUnits,
+                withoutResponse: false,
+              );
               // ignore: avoid_print
               print('✅ Sent to ESP32: $data');
               ScaffoldMessenger.of(context).showSnackBar(
@@ -5489,6 +5509,9 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
           'email': widget.email,
           // esp_id will auto-generate if set as default gen_random_uuid()
         });
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isRegistered', true);
 
         // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(
