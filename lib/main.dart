@@ -1340,67 +1340,35 @@ class _TankSetupScreenState extends State<TankSetupScreen>
         final user = supabase.auth.currentUser;
 
         if (user != null) {
-          // Fetch the esp_id associated with the current user
-          final userResponse = await supabase
+          // Update the users table with tank_height and tank_capacity
+          await supabase
               .from('users')
-              .select('esp_id')
-              .eq('id', user.id)
-              .single();
+              .update({'tank_height': height, 'tank_capacity': capacity})
+              .eq('id', user.id);
 
-          final String? espId = userResponse['esp_id'];
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isTankSetupDone', true);
 
-          if (espId != null) {
-            // Check if an entry for this esp_id already exists in esp_data
-            final existingEspData = await supabase
-                .from('esp_data')
-                .select('id')
-                .eq('esp_id', espId)
-                .maybeSingle();
+          // ignore: use_build_context_synchronously
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Tank details saved successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
 
-            if (existingEspData != null) {
-              // Update existing entry
-              await supabase
-                  .from('esp_data')
-                  .update({'tank_height': height, 'tank_capacity': capacity})
-                  .eq('esp_id', espId);
-            } else {
-              // Insert new entry
-              await supabase.from('esp_data').insert({
-                'esp_id': espId,
-                'tank_height': height,
-                'tank_capacity': capacity,
-                'tds_value': 0.0, // Default values
-                'water_level': 0.0, // Default values
-                'created_at': DateTime.now().toIso8601String(),
-              });
-            }
-
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setBool('isTankSetupDone', true);
-
-            // ignore: use_build_context_synchronously
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Tank details saved successfully!'),
-                backgroundColor: Colors.green,
-              ),
-            );
-
-            // ignore: use_build_context_synchronously
-            Navigator.of(context).pushReplacement(
-              PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) =>
-                    MainScreen(onThemeChanged: widget.onThemeChanged),
-                transitionsBuilder:
-                    (context, animation, secondaryAnimation, child) {
-                      return FadeTransition(opacity: animation, child: child);
-                    },
-                transitionDuration: const Duration(milliseconds: 500),
-              ),
-            );
-          } else {
-            throw Exception('ESP ID not found for the current user.');
-          }
+          // ignore: use_build_context_synchronously
+          Navigator.of(context).pushReplacement(
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  MainScreen(onThemeChanged: widget.onThemeChanged),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    return FadeTransition(opacity: animation, child: child);
+                  },
+              transitionDuration: const Duration(milliseconds: 500),
+            ),
+          );
         } else {
           throw Exception('User not logged in.');
         }
@@ -1810,19 +1778,23 @@ class _DashboardScreenState extends State<DashboardScreen>
     try {
       final user = supabase.auth.currentUser;
       if (user != null) {
+        // Fetch esp_id, tank_capacity, and tank_height from the users table
         final userResponse = await supabase
             .from('users')
-            .select('esp_id')
+            .select('esp_id, tank_capacity, tank_height')
             .eq('id', user.id)
             .single();
         setState(() {
           _espId = userResponse['esp_id'];
+          _tankCapacity = (userResponse['tank_capacity'] as num?)?.toDouble() ?? 1000.0;
+          // tank_height is not directly used for water level calculation but fetched if needed elsewhere
         });
 
         if (_espId != null) {
+          // Fetch tds_value and water_level from esp_data
           final espDataResponse = await supabase
               .from('esp_data')
-              .select('tds_value, water_level, tank_capacity')
+              .select('tds_value, water_level')
               .eq('esp_id', _espId)
               .order('created_at', ascending: false)
               .limit(1)
@@ -1834,9 +1806,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                   (espDataResponse['tds_value'] as num?)?.toDouble() ?? 0.0;
               _waterLevel =
                   (espDataResponse['water_level'] as num?)?.toDouble() ?? 0.0;
-              _tankCapacity =
-                  (espDataResponse['tank_capacity'] as num?)?.toDouble() ??
-                  1000.0; // Default if null
             });
           }
           _listenToEspData();
@@ -1853,7 +1822,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           _espId = '001'; // Default ESP ID for testing
           _tdsValue = 150.0;
           _waterLevel = 0.5;
-          _tankCapacity = 1000.0;
+          _tankCapacity = 1000.0; // Keep default for testing if no user
         });
         _listenToEspData();
       }
@@ -1883,9 +1852,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     (data[0]['tds_value'] as num?)?.toDouble() ?? _tdsValue;
                 _waterLevel =
                     (data[0]['water_level'] as num?)?.toDouble() ?? _waterLevel;
-                _tankCapacity =
-                    (data[0]['tank_capacity'] as num?)?.toDouble() ??
-                    _tankCapacity;
+                // tank_capacity is no longer streamed from esp_data
               });
             }
           });
@@ -4969,7 +4936,7 @@ class ChartPainter extends CustomPainter {
 
     final path = Path();
     const max = 100.0; // Maximum value in the chart
-
+    
     for (int i = 0; i < data.length; i++) {
       final x = padding + i * (width - padding * 2) / (data.length - 1);
       final y = height - padding - (data[i] / max) * (height - padding * 2);
@@ -5503,11 +5470,13 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
 
       if (user != null) {
         // Now that OTP is verified, insert into custom users table
+        // tank_capacity and tank_height will be null initially as per requirement
         await supabase.from('users').insert({
           'id': user.id,
           'name': widget.name,
           'email': widget.email,
           // esp_id will auto-generate if set as default gen_random_uuid()
+          // tank_capacity and tank_height are intentionally left null here
         });
 
         final prefs = await SharedPreferences.getInstance();
