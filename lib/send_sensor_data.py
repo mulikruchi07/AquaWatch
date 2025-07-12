@@ -15,7 +15,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # --- Configuration for Data Simulation ---
 # The ESP ID should match what your Flutter app is listening for.
 # In your Flutter code, it defaults to '017' for testing if no user is logged in.
-ESP_ID_TO_SIMULATE = "041"
+ESP_ID_TO_SIMULATE = "050"
 SEND_INTERVAL_SECONDS = 1 # Send data every 5 seconds
 
 def generate_random_data():
