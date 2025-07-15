@@ -12,7 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
 import 'dart:async'; // Import for StreamSubscription
 import 'session_persistence.dart';
-import 'package:uuid/uuid.dart'; // Import for UUID generation
+import 'package:uuid/uuid.dart';
+import 'dart:convert'; // Import for UUID generation
 
 // Initialize Supabase client
 final supabase = SupabaseClient(
@@ -232,6 +233,17 @@ class _LoginScreenState extends State<LoginScreen>
     _passwordController.dispose();
     super.dispose();
   }
+  // --- Utility function to show messages (SnackBar) ---
+  void _showMessage(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
 
   Future<void> _login() async {
     if (_formKey.currentState!.validate()) {
@@ -304,6 +316,35 @@ class _LoginScreenState extends State<LoginScreen>
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _forgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      _showMessage('Please enter your email address in the username field.', Colors.orange);
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      _showMessage('Sending password reset email...', Colors.blue);
+      await supabase.auth.resetPasswordForEmail(
+        email,
+        redirectTo: "https://aquawatch.hertzsoft.com/", // Your hosted HTML/CSS page
+      );
+      _showMessage('Password reset email sent! Check your inbox.', Colors.green);
+    } on AuthException catch (e) {
+      _showMessage('Error: ${e.message}', Colors.red);
+    } catch (e) {
+      _showMessage('An unexpected error occurred: $e', Colors.red);
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -564,21 +605,21 @@ class _LoginScreenState extends State<LoginScreen>
                       return null;
                     },
                   ),
-                  const SizedBox(height: 8),
+              const SizedBox(height: 8),
                   Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {},
-                      child: Text(
-                        'Forgot Password?',
-                        style: TextStyle(
-                          color: isDark
-                              ? const Color(0xFF60A5FA)
-                              : const Color(0xFF1791C8),
-                        ),
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _forgotPassword, // Changed to call _forgotPassword
+                    child: Text(
+                      'Forgot Password?',
+                      style: TextStyle(
+                        color: isDark
+                            ? const Color(0xFF60A5FA)
+                            : const Color(0xFF1791C8),
                       ),
                     ),
                   ),
+                ),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
@@ -1357,6 +1398,337 @@ class _RegisterScreenState extends State<RegisterScreen>
   }
 }
 
+// New DevicesScreen to list and manage connected devices
+class DevicesScreen extends StatefulWidget {
+  final Function(ThemeMode) onThemeChanged;
+
+  const DevicesScreen({super.key, required this.onThemeChanged});
+
+  @override
+  State<DevicesScreen> createState() => _DevicesScreenState();
+}
+
+class _DevicesScreenState extends State<DevicesScreen> {
+  List<UserDevice> _userDevices = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUserDevices();
+  }
+
+  Future<void> _fetchUserDevices() async {
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      final user = supabase.auth.currentUser;
+      if (user != null) {
+        final response = await supabase
+            .from('user_devices')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', ascending: true);
+
+        setState(() {
+          _userDevices = (response as List)
+              .map((e) => UserDevice.fromJson(e))
+              .toList();
+        });
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('Error fetching user devices: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading devices: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _deleteDevice(String deviceId) async {
+    try {
+      await supabase.from('user_devices').delete().eq('id', deviceId);
+      // Also delete related data from esp_data if necessary, depending on your foreign key constraints
+      // await supabase.from('esp_data').delete().eq('esp_id', espId);
+      _fetchUserDevices(); // Refresh the list
+      // ignore: use_build_context_synchronously
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Device deleted successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('Error deleting device: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete device: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('My Devices'),
+        backgroundColor: isDark ? const Color(0xFF334155) : Colors.white,
+        foregroundColor: isDark
+            ? const Color(0xFFF1F5F9)
+            : const Color(0xFF1F2937),
+        elevation: 0,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _userDevices.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.devices_other,
+                    size: 80,
+                    color: isDark ? Colors.white54 : Colors.grey[400],
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'No devices connected yet.',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: isDark ? Colors.white70 : Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      _showAddDeviceConfirmationDialog(); // Show confirmation dialog
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add New Device'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4689C8),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _userDevices.length,
+              itemBuilder: (context, index) {
+                final device = _userDevices[index];
+                final isSelected =
+                    currentSelectedDeviceNotifier.value?.espId == device.espId;
+                return Card(
+                  color: isDark
+                      ? (isSelected
+                            ? const Color(0xFF475569)
+                            : const Color(0xFF334155))
+                      : (isSelected ? const Color(0xFFE0E7FF) : Colors.white),
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    side: isSelected
+                        ? const BorderSide(color: Color(0xFF4689C8), width: 2)
+                        : BorderSide.none,
+                  ),
+                  elevation: 4,
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.device_hub,
+                      color: isSelected
+                          ? const Color(0xFF4689C8)
+                          : (isDark ? Colors.white70 : Colors.grey[600]),
+                    ),
+                    title: Text(
+                      device.deviceName,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ESP ID: ${device.espId}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? Colors.white60 : Colors.grey[700],
+                          ),
+                        ),
+                        if (device.tankCapacity != null &&
+                            device.tankHeight != null)
+                          Text(
+                            'Capacity: ${device.tankCapacity?.toInt()}L, Height: ${device.tankHeight?.toInt()}cm',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? Colors.white60 : Colors.grey[700],
+                            ),
+                          )
+                        else
+                          Text(
+                            'Tank details not set',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? Colors.orangeAccent
+                                  : Colors.orange,
+                            ),
+                          ),
+                      ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            Icons.edit,
+                            color: isDark ? Colors.blueAccent : Colors.blue,
+                          ),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => TankSetupScreen(
+                                  onThemeChanged: widget.onThemeChanged,
+                                  espId: device.espId,
+                                  initialDeviceName: device.deviceName,
+                                  initialTankCapacity: device.tankCapacity,
+                                  initialTankHeight: device.tankHeight,
+                                  isNewDevice: false, // It's an update
+                                ),
+                              ),
+                            ).then(
+                              (_) => _fetchUserDevices(),
+                            ); // Refresh list on return
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.delete,
+                            color: isDark ? Colors.redAccent : Colors.red,
+                          ),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (BuildContext context) {
+                                return AlertDialog(
+                                  title: const Text('Delete Device'),
+                                  content: Text(
+                                    'Are you sure you want to delete "${device.deviceName}"? This action cannot be undone.',
+                                  ),
+                                  actions: <Widget>[
+                                    TextButton(
+                                      child: const Text('Cancel'),
+                                      onPressed: () {
+                                        Navigator.of(context).pop();
+                                      },
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red,
+                                      ),
+                                      child: const Text(
+                                        'Delete',
+                                        style: TextStyle(color: Colors.white),
+                                      ),
+                                      onPressed: () {
+                                        _deleteDevice(device.id);
+                                        Navigator.of(context).pop();
+                                      },
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    onTap: () {
+                      currentSelectedDeviceNotifier.value = device;
+                      Navigator.of(context).pop(); // Go back to settings
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Switched to ${device.deviceName}'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Future<void> _showAddDeviceConfirmationDialog() async {
+    return showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Add New Device?'),
+          content: const Text(
+            'Do you want to add a new ESP32 device to your account? You will be redirected to the Bluetooth setup page.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('No'),
+              onPressed: () {
+                Navigator.of(context).pop(); // Dismiss dialog
+              },
+            ),
+            ElevatedButton(
+              child: const Text('Yes, Add Device'),
+              onPressed: () async {
+                Navigator.of(context).pop(); // Dismiss dialog
+                // Navigate to BluetoothDevicePage without pre-generating ESP ID
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => BluetoothDevicePage(
+                      onThemeChanged: widget.onThemeChanged,
+                      newEspId: null, // No ESP ID generated here
+                    ),
+                  ),
+                ).then((_) {
+                  _fetchUserDevices(); // Refresh the list on return from Bluetooth setup
+                });
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class TankSetupScreen extends StatefulWidget {
   final Function(ThemeMode) onThemeChanged;
   final String espId; // Pass the ESP ID to this screen
@@ -1919,6 +2291,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   late Animation<double> _fabAnimation;
   bool _isFabOpen = false;
 
+  StreamSubscription? _espDataSubscription; // To manage the stream subscription
+
   @override
   void initState() {
     super.initState();
@@ -1948,6 +2322,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _animationController.dispose();
     _fabAnimationController.dispose();
     currentSelectedDeviceNotifier.removeListener(_onCurrentDeviceChanged);
+    _espDataSubscription?.cancel(); // Cancel the stream when disposing
     super.dispose();
   }
 
@@ -2036,6 +2411,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _fetchEspData() async {
+    _espDataSubscription?.cancel(); // Cancel previous subscription
     if (_currentEspId == null) {
       // If no device is selected, clear dashboard data
       setState(() {
@@ -2071,7 +2447,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           isWifiConnectedNotifier.value = false;
         });
       }
-      _listenToEspData();
+      _listenToEspData(); // Start listening after initial fetch
     } catch (e) {
       // ignore: avoid_print
       print('Error fetching ESP data: $e');
@@ -2089,30 +2465,36 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _listenToEspData() {
+    _espDataSubscription
+        ?.cancel(); // Cancel any active subscription before creating a new one
+
     if (_currentEspId != null) {
-      supabase
+      _espDataSubscription = supabase
           .from('esp_data')
           .stream(primaryKey: const ['id'])
           .eq('esp_id', _currentEspId)
           .order('created_at', ascending: false)
           .limit(1)
           .listen((List<Map<String, dynamic>> data) {
-            if (data.isNotEmpty) {
-              setState(() {
-                _tdsValue =
-                    (data[0]['tds_value'] as num?)?.toDouble() ?? _tdsValue;
-                _waterLevel =
-                    (data[0]['water_level'] as num?)?.toDouble() ?? _waterLevel;
-                isWifiConnectedNotifier.value =
-                    true; // Data is streaming, so connected
-              });
-            } else {
-              // Stream returns empty, means no data for this ESP_ID or disconnected
-              setState(() {
-                _tdsValue = 0.0;
-                _waterLevel = 0.0;
-                isWifiConnectedNotifier.value = false;
-              });
+            if (mounted) {
+              if (data.isNotEmpty) {
+                setState(() {
+                  _tdsValue =
+                      (data[0]['tds_value'] as num?)?.toDouble() ?? _tdsValue;
+                  _waterLevel =
+                      (data[0]['water_level'] as num?)?.toDouble() ??
+                      _waterLevel;
+                  isWifiConnectedNotifier.value =
+                      true; // Data is streaming, so connected
+                });
+              } else {
+                // Stream returns empty, means no data for this ESP_ID or disconnected
+                setState(() {
+                  _tdsValue = 0.0;
+                  _waterLevel = 0.0;
+                  isWifiConnectedNotifier.value = false;
+                });
+              }
             }
           });
     }
@@ -2150,7 +2532,18 @@ class _DashboardScreenState extends State<DashboardScreen>
               child: const Text('Add Device'),
               onPressed: () async {
                 Navigator.of(context).pop(); // Dismiss dialog
-                await _addDeviceConfirmed(); // Proceed to add device
+                // Navigate to BluetoothDevicePage without pre-generating ESP ID
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => BluetoothDevicePage(
+                      onThemeChanged: widget.onThemeChanged,
+                      newEspId: null, // No ESP ID generated here
+                    ),
+                  ),
+                ).then((_) {
+                  _fetchUserDevicesAndSetCurrent(); // Refresh devices on return
+                });
               },
             ),
           ],
@@ -2171,51 +2564,20 @@ class _DashboardScreenState extends State<DashboardScreen>
       return;
     }
 
-    try {
-      // Generate a new ESP ID
-      const uuid = Uuid();
-      final newEspId = uuid.v4(); // Generate a UUID as the new ESP ID
-
-      // Insert into user_devices table with null tank_capacity and tank_height
-      await supabase.from('user_devices').insert({
-        'user_id': user.id,
-        'esp_id': newEspId,
-        'device_name': 'New Device', // Default name, user can change later
-        'tank_capacity': null,
-        'tank_height': null,
-      });
-
-      // Navigate to BluetoothDevicePage with the new ESP ID
-      // ignore: use_build_context_synchronously
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => BluetoothDevicePage(
-            onThemeChanged: widget.onThemeChanged,
-            newEspId: newEspId, // Pass the newly generated ESP ID
-          ),
+    // Navigate to BluetoothDevicePage without pre-generating ESP ID
+    // The ESP ID will be generated when a device is selected for connection
+    // ignore: use_build_context_synchronously
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BluetoothDevicePage(
+          onThemeChanged: widget.onThemeChanged,
+          newEspId: null, // No ESP ID generated here
         ),
-      );
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'New device added to your account. Connect it via Bluetooth.',
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error adding new device: $e');
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to add new device: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
+      ),
+    ).then((_) {
+      _fetchUserDevicesAndSetCurrent(); // Refresh devices on return
+    });
   }
 
   @override
@@ -3906,32 +4268,35 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
             ),
             const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _userName,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: isDark
-                        ? const Color(0xFFF1F5F9)
-                        : const Color(0xFF1F2937),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _userName,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: isDark
+                          ? const Color(0xFFF1F5F9)
+                          : const Color(0xFF1F2937),
+                    ),
+                    overflow: TextOverflow.ellipsis, // Prevent overflow
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _userEmail,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark
-                        ? const Color(0xFF94A3B8)
-                        : const Color(0xFF6B7280),
+                  const SizedBox(height: 4),
+                  Text(
+                    _userEmail,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark
+                          ? const Color(0xFF94A3B8)
+                          : const Color(0xFF6B7280),
+                    ),
+                    overflow: TextOverflow.ellipsis, // Prevent overflow
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const Spacer(),
           ],
         ),
         const SizedBox(height: 16),
@@ -4394,6 +4759,7 @@ Widget _buildSettingsButton(
   VoidCallback onTap,
   bool isDark, {
   Widget? trailing,
+  Color? textColor, // New parameter for text color
 }) {
   return InkWell(
     onTap: onTap,
@@ -4402,16 +4768,23 @@ Widget _buildSettingsButton(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
       child: Row(
         children: [
-          Icon(icon, color: const Color(0xFF4689C8), size: 20),
+          Icon(icon, color: textColor ?? const Color(0xFF4689C8), size: 20),
           const SizedBox(width: 12),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 16,
-              color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
+          Expanded(
+            // Use Expanded to prevent text overflow
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 16,
+                color:
+                    textColor ??
+                    (isDark
+                        ? const Color(0xFFF1F5F9)
+                        : const Color(0xFF1F2937)),
+              ),
+              overflow: TextOverflow.ellipsis, // Add overflow handling
             ),
           ),
-          const Spacer(),
           trailing ??
               Icon(
                 Icons.chevron_right,
@@ -4480,6 +4853,135 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     }
   }
 
+  Future<void> _deleteAccount() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You must be logged in to delete your account.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Account'),
+          content: const Text(
+            'Are you sure you want to delete your account? This will permanently delete all your devices and their data, and cannot be undone.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(); // Dismiss dialog
+              },
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete My Account'),
+              onPressed: () async {
+                Navigator.of(dialogContext).pop(); // Dismiss dialog
+                setState(() {
+                  // You might want a global loading indicator here
+                });
+
+                try {
+                  // 1. Get all user's devices to ensure their esp_id is known for esp_data deletion
+                  final userDevicesResponse = await supabase
+                      .from('user_devices')
+                      .select('id, esp_id')
+                      .eq('user_id', user.id);
+
+                  final List<String> espIdsToDelete = [];
+                  if (userDevicesResponse != null) {
+                    for (var device in userDevicesResponse) {
+                      espIdsToDelete.add(device['esp_id'] as String);
+                    }
+                  }
+
+                  // 2. Delete data from 'esp_data' table for all user's devices
+                  // This is handled by 'on delete CASCADE' from user_devices,
+                  // but explicitly doing it here ensures it if cascade fails or for clarity.
+                  if (espIdsToDelete.isNotEmpty) {
+                    await supabase
+                        .from('esp_data')
+                        .delete()
+                        .in_('esp_id', espIdsToDelete);
+                  }
+
+                  // 3. Delete all user's devices from 'user_devices' table
+                  // This will also trigger cascade delete on 'esp_data' if the above was skipped
+                  await supabase
+                      .from('user_devices')
+                      .delete()
+                      .eq('user_id', user.id);
+
+                  // 4. Delete the user from the 'users' table (your custom table)
+                  await supabase.from('users').delete().eq('id', user.id);
+
+                  // 5. Delete the user from Supabase Auth
+                  // This requires the `supabase.auth.admin` client, which needs a `service_role` key
+                  // or appropriate RLS policies on `auth.users` for the `anon` key.
+                  // If this fails, it's likely an RLS or key permission issue.
+                  await supabase.auth.admin.deleteUser(user.id);
+
+                  // 6. Clear local session and navigate to login
+                  await SharedPreferences.getInstance().then(
+                    (prefs) => prefs.clear(),
+                  );
+                  await SessionPersistence.clear();
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Account deleted successfully.'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(
+                        builder: (context) => LoginScreen(
+                          onThemeChanged: (mode) {},
+                        ), // Pass default theme
+                      ),
+                      (route) => false,
+                    );
+                  }
+                } catch (e) {
+                  // ignore: avoid_print
+                  print('Error deleting account: $e');
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Failed to delete account: ${e.toString()}',
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                } finally {
+                  setState(() {
+                    // Reset loading state if any
+                  });
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -4538,6 +5040,14 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
                 ),
               ).then((_) => _fetchCurrentUserDetails()); // Refresh after update
             }),
+            const Divider(),
+            _buildSettingsButton(
+              'Delete Account',
+              Icons.delete_forever,
+              _deleteAccount,
+              isDark,
+              textColor: Colors.red, // Red color for delete button
+            ),
           ],
         ),
       ),
@@ -4550,9 +5060,15 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
     IconData icon,
     VoidCallback onTap,
   ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ListTile(
       leading: Icon(icon, color: const Color(0xFF4689C8)),
-      title: Text(title),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF1F2937),
+        ),
+      ),
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
     );
@@ -5500,10 +6016,11 @@ class ChartPainter extends CustomPainter {
 
     final path = Path();
     const max = 100.0; // Maximum value in the chart
+    final chartHeight = height - padding * 2;
 
     for (int i = 0; i < data.length; i++) {
       final x = padding + i * (width - padding * 2) / (data.length - 1);
-      final y = height - padding - (data[i] / max) * (height - padding * 2);
+      final y = height - padding - (data[i] / max) * chartHeight;
 
       if (i == 0) {
         path.moveTo(x, y);
@@ -5542,7 +6059,7 @@ class ChartPainter extends CustomPainter {
 
     for (int i = 0; i < data.length; i++) {
       final x = padding + i * (width - padding * 2) / (data.length - 1);
-      final y = height - padding - (data[i] / max) * (height - padding * 2);
+      final y = height - padding - (data[i] / max) * chartHeight;
 
       canvas.drawCircle(Offset(x, y), 3, pointPaint);
       canvas.drawCircle(
@@ -5615,7 +6132,7 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
   @override
   void initState() {
     super.initState();
-    _startScan(); // Directly start scanning
+    _requestPermissionsAndStartScan(); // Request permissions and then start scanning
   }
 
   @override
@@ -5626,16 +6143,64 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
     super.dispose();
   }
 
-  void _startScan() async {
-    // Request permissions without checking status
-    await [
-      Permission.bluetooth,
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-      Permission.location,
-    ].request();
+  Future<void> _requestPermissionsAndStartScan() async {
+    // Request Bluetooth permissions
+    final bluetoothScanStatus = await Permission.bluetoothScan.request();
+    final bluetoothConnectStatus = await Permission.bluetoothConnect.request();
+    final locationWhenInUseStatus = await Permission.locationWhenInUse
+        .request();
 
-    // Start scanning directly
+    if (bluetoothScanStatus.isGranted &&
+        bluetoothConnectStatus.isGranted &&
+        locationWhenInUseStatus.isGranted) {
+      // Check if Bluetooth is on
+      if (!await FlutterBluePlus.isOn) {
+        // ignore: use_build_context_synchronously
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please turn on Bluetooth to scan for devices.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        // Optionally, prompt user to turn on Bluetooth
+        await FlutterBluePlus.turnOn();
+      }
+
+      // Check if Location services are enabled (required for BLE scanning on Android)
+      if (Platform.isAndroid) {
+        if (!await Permission.locationWhenInUse.serviceStatus.isEnabled) {
+          // ignore: use_build_context_synchronously
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Please enable Location Services for Bluetooth scanning.',
+              ),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          // Optionally, navigate to location settings
+          await openAppSettings(); // This opens app settings, user can then go to location.
+          // For more direct, consider `Geolocator.openLocationSettings()` if using geolocator package.
+        }
+      }
+
+      _startScan();
+    } else {
+      // ignore: use_build_context_synchronously
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bluetooth and Location permissions are required.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _startScan() async {
+    // Ensure previous scan is stopped before starting a new one
+    FlutterBluePlus.stopScan();
+
+    // Start scanning
     FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
     FlutterBluePlus.scanResults.listen((results) {
       if (mounted) {
@@ -5656,6 +6221,32 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
 
   Future<void> connectToDevice(BluetoothDevice device) async {
     try {
+      // Generate a new ESP ID here, when a device is selected for connection
+      const uuid = Uuid();
+      final generatedEspId = uuid.v4();
+
+      // Get current user ID
+      final user = supabase.auth.currentUser;
+      if (user == null) {
+        // ignore: use_build_context_synchronously
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You must be logged in to connect a device.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Insert the new device into user_devices table
+      await supabase.from('user_devices').insert({
+        'user_id': user.id,
+        'esp_id': generatedEspId,
+        'device_name': 'New Device', // Default name
+        'tank_capacity': null,
+        'tank_height': null,
+      });
+
       // ignore: avoid_print
       print('🔗 Connecting to ${device.name}...');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -5699,15 +6290,22 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
           device,
           targetChar,
           widget.onThemeChanged,
-          widget.newEspId, // Pass the new ESP ID here
+          generatedEspId, // Pass the newly generated ESP ID here
         );
       } else {
+        // If characteristic not found, delete the newly created device entry
+        await supabase
+            .from('user_devices')
+            .delete()
+            .eq('esp_id', generatedEspId);
         // ignore: avoid_print
-        print('❌ Required BLE characteristic not found');
+        print('❌ Required BLE characteristic not found. Device entry deleted.');
         // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("✖️ Required device not found."),
+            content: Text(
+              "✖️ Required device not found. Device entry removed.",
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -5789,7 +6387,9 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: ElevatedButton(
-                onPressed: _isScanning ? null : _startScan,
+                onPressed: _isScanning
+                    ? null
+                    : _requestPermissionsAndStartScan, // Call the permission function
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF4689C8),
                   foregroundColor: Colors.white,
@@ -5840,7 +6440,7 @@ Future<void> showWifiCredentialsDialog(
             final ssid = ssidController.text.trim();
             final password = passwordController.text.trim();
             // Include the espIdForSetup in the data sent to ESP32
-            final data = "$ssid|$password|${espIdForSetup ?? ''}";
+            final data = "$ssid|$password";
 
             try {
               await characteristic.write(
@@ -5854,13 +6454,14 @@ Future<void> showWifiCredentialsDialog(
               );
 
               await characteristic.setNotifyValue(true);
-              characteristic.value.listen((value) {
+              characteristic.value.listen((value) async {
                 final response = String.fromCharCodes(value);
                 // ignore: avoid_print
                 print("📩 Response from ESP32: $response");
 
                 if (response == "WIFI_OK") {
                   isWifiConnectedNotifier.value = true;
+                  final user = supabase.auth.currentUser;
                   Navigator.of(context).pop(); // Dismiss dialog
                   Navigator.pushReplacement(
                     context,
@@ -5880,6 +6481,25 @@ Future<void> showWifiCredentialsDialog(
                       backgroundColor: Colors.green,
                     ),
                   );
+
+                  if (user != null) {
+                    final response = await supabase
+                    .from('user_devices')
+                    .select('esp_id')
+                    .eq('user_id', user.id)
+                    .single();
+
+                    final String espId = response['esp_id'];
+                    print('🆔 ESP ID: $espId');
+
+                    // Send ESP ID over BLE
+                    await Future.delayed(const Duration(seconds: 1));
+                    await characteristic.write(
+                      utf8.encode("ESP_ID|$espId"),
+                      withoutResponse: false,
+                    );
+                  }
+
                 } else if (response == "WIFI_FAIL") {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -6048,24 +6668,10 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
 
       if (user != null) {
         // Now that OTP is verified, insert into custom users table
-        // tank_capacity and tank_height will be null initially as per requirement
         await supabase.from('users').insert({
           'id': user.id,
           'name': widget.name,
           'email': widget.email,
-          // Removed esp_id, tank_capacity, tank_height from users table insert
-        });
-
-        // Generate a new ESP ID for the first device and insert into user_devices
-        const uuid = Uuid();
-        final newEspId = uuid.v4(); // Generate a UUID as the new ESP ID
-
-        await supabase.from('user_devices').insert({
-          'user_id': user.id,
-          'esp_id': newEspId,
-          'device_name': 'My First Tank', // Default name for the first device
-          'tank_capacity': null,
-          'tank_height': null,
         });
 
         final prefs = await SharedPreferences.getInstance();
@@ -6076,13 +6682,15 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
           context,
         ).showSnackBar(const SnackBar(content: Text("✅ OTP Verified!")));
 
+        // Navigate to BluetoothDevicePage without pre-generating ESP ID
+        // The ESP ID will be generated when a device is selected for connection
         // ignore: use_build_context_synchronously
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => BluetoothDevicePage(
               onThemeChanged: widget.onThemeChanged,
-              newEspId: newEspId, // Pass the newly generated ESP ID
+              newEspId: null, // No ESP ID generated here
             ),
           ),
         );
@@ -6147,386 +6755,5 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
         ),
       ),
     );
-  }
-}
-
-// New DevicesScreen to list and manage connected devices
-class DevicesScreen extends StatefulWidget {
-  final Function(ThemeMode) onThemeChanged;
-
-  const DevicesScreen({super.key, required this.onThemeChanged});
-
-  @override
-  State<DevicesScreen> createState() => _DevicesScreenState();
-}
-
-class _DevicesScreenState extends State<DevicesScreen> {
-  List<UserDevice> _userDevices = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchUserDevices();
-  }
-
-  Future<void> _fetchUserDevices() async {
-    setState(() {
-      _isLoading = true;
-    });
-    try {
-      final user = supabase.auth.currentUser;
-      if (user != null) {
-        final response = await supabase
-            .from('user_devices')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', ascending: true);
-
-        setState(() {
-          _userDevices = (response as List)
-              .map((e) => UserDevice.fromJson(e))
-              .toList();
-        });
-      }
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error fetching user devices: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading devices: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _deleteDevice(String deviceId) async {
-    try {
-      await supabase.from('user_devices').delete().eq('id', deviceId);
-      // Also delete related data from esp_data if necessary, depending on your foreign key constraints
-      // await supabase.from('esp_data').delete().eq('esp_id', espId);
-      _fetchUserDevices(); // Refresh the list
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Device deleted successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error deleting device: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to delete device: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Devices'),
-        backgroundColor: isDark ? const Color(0xFF334155) : Colors.white,
-        foregroundColor: isDark
-            ? const Color(0xFFF1F5F9)
-            : const Color(0xFF1F2937),
-        elevation: 0,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _userDevices.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.devices_other,
-                    size: 80,
-                    color: isDark ? Colors.white54 : Colors.grey[400],
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'No devices connected yet.',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: isDark ? Colors.white70 : Colors.grey[600],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      _showAddDeviceConfirmationDialog(); // Show confirmation dialog
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add New Device'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4689C8),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _userDevices.length,
-              itemBuilder: (context, index) {
-                final device = _userDevices[index];
-                final isSelected =
-                    currentSelectedDeviceNotifier.value?.espId == device.espId;
-                return Card(
-                  color: isDark
-                      ? (isSelected
-                            ? const Color(0xFF475569)
-                            : const Color(0xFF334155))
-                      : (isSelected ? const Color(0xFFE0E7FF) : Colors.white),
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    side: isSelected
-                        ? const BorderSide(color: Color(0xFF4689C8), width: 2)
-                        : BorderSide.none,
-                  ),
-                  elevation: 4,
-                  child: ListTile(
-                    leading: Icon(
-                      Icons.device_hub,
-                      color: isSelected
-                          ? const Color(0xFF4689C8)
-                          : (isDark ? Colors.white70 : Colors.grey[600]),
-                    ),
-                    title: Text(
-                      device.deviceName,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'ESP ID: ${device.espId}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark ? Colors.white60 : Colors.grey[700],
-                          ),
-                        ),
-                        if (device.tankCapacity != null &&
-                            device.tankHeight != null)
-                          Text(
-                            'Capacity: ${device.tankCapacity?.toInt()}L, Height: ${device.tankHeight?.toInt()}cm',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark ? Colors.white60 : Colors.grey[700],
-                            ),
-                          )
-                        else
-                          Text(
-                            'Tank details not set',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark
-                                  ? Colors.orangeAccent
-                                  : Colors.orange,
-                            ),
-                          ),
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(
-                            Icons.edit,
-                            color: isDark ? Colors.blueAccent : Colors.blue,
-                          ),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => TankSetupScreen(
-                                  onThemeChanged: widget.onThemeChanged,
-                                  espId: device.espId,
-                                  initialDeviceName: device.deviceName,
-                                  initialTankCapacity: device.tankCapacity,
-                                  initialTankHeight: device.tankHeight,
-                                  isNewDevice: false, // It's an update
-                                ),
-                              ),
-                            ).then(
-                              (_) => _fetchUserDevices(),
-                            ); // Refresh list on return
-                          },
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.delete,
-                            color: isDark ? Colors.redAccent : Colors.red,
-                          ),
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder: (BuildContext context) {
-                                return AlertDialog(
-                                  title: const Text('Delete Device'),
-                                  content: Text(
-                                    'Are you sure you want to delete "${device.deviceName}"? This action cannot be undone.',
-                                  ),
-                                  actions: <Widget>[
-                                    TextButton(
-                                      child: const Text('Cancel'),
-                                      onPressed: () {
-                                        Navigator.of(context).pop();
-                                      },
-                                    ),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.red,
-                                      ),
-                                      child: const Text(
-                                        'Delete',
-                                        style: TextStyle(color: Colors.white),
-                                      ),
-                                      onPressed: () {
-                                        _deleteDevice(device.id);
-                                        Navigator.of(context).pop();
-                                      },
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                    onTap: () {
-                      currentSelectedDeviceNotifier.value = device;
-                      Navigator.of(context).pop(); // Go back to settings
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Switched to ${device.deviceName}'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
-    );
-  }
-
-  Future<void> _showAddDeviceConfirmationDialog() async {
-    return showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Add New Device?'),
-          content: const Text(
-            'Do you want to add a new ESP32 device to your account? You will be redirected to the Bluetooth setup page.',
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('No'),
-              onPressed: () {
-                Navigator.of(context).pop(); // Dismiss dialog
-              },
-            ),
-            ElevatedButton(
-              child: const Text('Yes, Add Device'),
-              onPressed: () async {
-                Navigator.of(context).pop(); // Dismiss dialog
-                await _addDeviceConfirmed(); // Proceed to add device
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _addDeviceConfirmed() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please log in to add a device.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    try {
-      // Generate a new ESP ID
-      const uuid = Uuid();
-      final newEspId = uuid.v4(); // Generate a UUID as the new ESP ID
-
-      // Insert into user_devices table with null tank_capacity and tank_height
-      await supabase.from('user_devices').insert({
-        'user_id': user.id,
-        'esp_id': newEspId,
-        'device_name': 'New Device', // Default name, user can change later
-        'tank_capacity': null,
-        'tank_height': null,
-      });
-
-      // Navigate to BluetoothDevicePage with the new ESP ID
-      // ignore: use_build_context_synchronously
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => BluetoothDevicePage(
-            onThemeChanged: widget.onThemeChanged,
-            newEspId: newEspId, // Pass the newly generated ESP ID
-          ),
-        ),
-      ).then((_) {
-        _fetchUserDevices(); // Refresh the list on return from Bluetooth setup
-      });
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'New device added to your account. Connect it via Bluetooth.',
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error adding new device: $e');
-      // ignore: use_build_context_synchronously
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to add new device: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 }
