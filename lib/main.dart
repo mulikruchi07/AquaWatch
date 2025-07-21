@@ -10,7 +10,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart'; // Corrected import
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
-import 'dart:async'; // Import for StreamSubscription
+import 'dart:async'; // Import for StreamSubscription and Timer
 import 'session_persistence.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:convert'; // Import for UUID generation
@@ -233,6 +233,7 @@ class _LoginScreenState extends State<LoginScreen>
     _passwordController.dispose();
     super.dispose();
   }
+
   // --- Utility function to show messages (SnackBar) ---
   void _showMessage(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -243,7 +244,6 @@ class _LoginScreenState extends State<LoginScreen>
       ),
     );
   }
-
 
   Future<void> _login() async {
     if (_formKey.currentState!.validate()) {
@@ -322,7 +322,10 @@ class _LoginScreenState extends State<LoginScreen>
   Future<void> _forgotPassword() async {
     final email = _emailController.text.trim();
     if (email.isEmpty) {
-      _showMessage('Please enter your email address in the username field.', Colors.orange);
+      _showMessage(
+        'Please enter your email address in the username field.',
+        Colors.orange,
+      );
       return;
     }
 
@@ -334,9 +337,12 @@ class _LoginScreenState extends State<LoginScreen>
       _showMessage('Sending password reset email...', Colors.blue);
       await supabase.auth.resetPasswordForEmail(
         email,
-        redirectTo: "https://aquawatch.hertzsoft.com/", // Your hosted HTML/CSS page
+        redirectTo: "https://forgotpass.vercel.app/index.html",
       );
-      _showMessage('Password reset email sent! Check your inbox.', Colors.green);
+      _showMessage(
+        'Password reset email sent! Check your inbox.',
+        Colors.green,
+      );
     } on AuthException catch (e) {
       _showMessage('Error: ${e.message}', Colors.red);
     } catch (e) {
@@ -605,21 +611,22 @@ class _LoginScreenState extends State<LoginScreen>
                       return null;
                     },
                   ),
-              const SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _forgotPassword, // Changed to call _forgotPassword
-                    child: Text(
-                      'Forgot Password?',
-                      style: TextStyle(
-                        color: isDark
-                            ? const Color(0xFF60A5FA)
-                            : const Color(0xFF1791C8),
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed:
+                          _forgotPassword, // Changed to call _forgotPassword
+                      child: Text(
+                        'Forgot Password?',
+                        style: TextStyle(
+                          color: isDark
+                              ? const Color(0xFF60A5FA)
+                              : const Color(0xFF1791C8),
+                        ),
                       ),
                     ),
                   ),
-                ),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
@@ -1870,14 +1877,30 @@ class _TankSetupScreenState extends State<TankSetupScreen>
         } else {
           throw Exception('User not logged in.');
         }
-      } catch (e) {
+      } catch (e, stackTrace) {
+        // Capture stack trace for more detail
         // ignore: avoid_print
-        print('Error saving tank details: $e');
+        print(
+          'Error saving tank details: $e\nStack: $stackTrace',
+        ); // Print stack trace
         if (mounted) {
+          String errorMessage =
+              'Failed to save tank details. Please try again.';
+          // Check for Supabase specific errors for more detailed messages
+          if (e is PostgrestException) {
+            errorMessage = 'Database error: ${e.message} (Code: ${e.code})';
+          } else if (e is AuthException) {
+            errorMessage = 'Authentication error: ${e.message}';
+          } else {
+            errorMessage = 'An unexpected error occurred: ${e.toString()}';
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to save tank details: ${e.toString()}'),
+              content: Text(errorMessage),
               backgroundColor: Colors.red,
+              duration: const Duration(
+                seconds: 5,
+              ), // Give user more time to read
             ),
           );
         }
@@ -2279,7 +2302,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   ThemeMode currentTheme = ThemeMode.system;
   bool isDarkMode = false;
 
-  bool isWifiConnected = false;
+  // bool isWifiConnected = false; // This is now controlled by isWifiConnectedNotifier
   double _tdsValue = 0.0;
   double _waterLevel = 0.0; // Water level as a percentage (0.0 to 1.0)
   String? _currentEspId; // This will hold the currently selected ESP ID
@@ -2292,6 +2315,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _isFabOpen = false;
 
   StreamSubscription? _espDataSubscription; // To manage the stream subscription
+
+  // --- MODIFIED: Logic for connectivity status disabled as per user request ---
+  // Timer? _connectivityCheckTimer;
+  // DateTime? _lastDataTimestamp;
+  // --- END MODIFIED ---
 
   @override
   void initState() {
@@ -2315,6 +2343,29 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     // Listen to changes in the current selected device
     currentSelectedDeviceNotifier.addListener(_onCurrentDeviceChanged);
+
+    // --- MODIFIED: Timer to periodically check for stale data disabled as per user request ---
+    /*
+    _connectivityCheckTimer = Timer.periodic(const Duration(seconds: 30), (
+      timer,
+    ) {
+      if (_lastDataTimestamp != null) {
+        // If data is older than 5 minutes, consider it disconnected
+        final isConnected =
+            DateTime.now().difference(_lastDataTimestamp!) <
+            const Duration(minutes: 5);
+        if (isWifiConnectedNotifier.value != isConnected) {
+          isWifiConnectedNotifier.value = isConnected;
+        }
+      } else {
+        // If there's no timestamp, we are disconnected
+        if (isWifiConnectedNotifier.value) {
+          isWifiConnectedNotifier.value = false;
+        }
+      }
+    });
+    */
+    // --- END MODIFIED ---
   }
 
   @override
@@ -2323,6 +2374,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _fabAnimationController.dispose();
     currentSelectedDeviceNotifier.removeListener(_onCurrentDeviceChanged);
     _espDataSubscription?.cancel(); // Cancel the stream when disposing
+    // _connectivityCheckTimer?.cancel(); // --- MODIFIED: Cancel the timer disabled ---
     super.dispose();
   }
 
@@ -2410,6 +2462,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  // --- MODIFIED: This function now keeps the status as 'Not Connected' ---
   Future<void> _fetchEspData() async {
     _espDataSubscription?.cancel(); // Cancel previous subscription
     if (_currentEspId == null) {
@@ -2418,6 +2471,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         _tdsValue = 0.0;
         _waterLevel = 0.0;
         isWifiConnectedNotifier.value = false;
+        // _lastDataTimestamp = null; // Reset timestamp
       });
       return;
     }
@@ -2425,19 +2479,23 @@ class _DashboardScreenState extends State<DashboardScreen>
     try {
       final espDataResponse = await supabase
           .from('esp_data')
-          .select('tds_value, water_level')
+          .select('tds_value, water_level, created_at') // Select created_at
           .eq('esp_id', _currentEspId)
           .order('created_at', ascending: false)
           .limit(1)
           .maybeSingle(); // Use maybeSingle for potentially no data
 
       if (espDataResponse != null) {
+        // final lastSeen = DateTime.parse(espDataResponse['created_at']);
+        // final isConnected =
+        //     DateTime.now().difference(lastSeen) < const Duration(minutes: 5);
+
         setState(() {
           _tdsValue = (espDataResponse['tds_value'] as num?)?.toDouble() ?? 0.0;
           _waterLevel =
               (espDataResponse['water_level'] as num?)?.toDouble() ?? 0.0;
-          isWifiConnectedNotifier.value =
-              true; // Assume connected if data comes
+          isWifiConnectedNotifier.value = false; // Always Not Connected
+          // _lastDataTimestamp = lastSeen; // Store the timestamp
         });
       } else {
         // No data for this ESP ID, assume not connected or no readings yet
@@ -2445,6 +2503,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           _tdsValue = 0.0;
           _waterLevel = 0.0;
           isWifiConnectedNotifier.value = false;
+          // _lastDataTimestamp = null; // Reset timestamp
         });
       }
       _listenToEspData(); // Start listening after initial fetch
@@ -2460,10 +2519,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         _tdsValue = 0.0;
         _waterLevel = 0.0;
         isWifiConnectedNotifier.value = false;
+        // _lastDataTimestamp = null; // Reset timestamp
       });
     }
   }
+  // --- END MODIFIED ---
 
+  // --- MODIFIED: This function no longer sets the status to 'Connected' ---
   void _listenToEspData() {
     _espDataSubscription
         ?.cancel(); // Cancel any active subscription before creating a new one
@@ -2473,32 +2535,42 @@ class _DashboardScreenState extends State<DashboardScreen>
           .from('esp_data')
           .stream(primaryKey: const ['id'])
           .eq('esp_id', _currentEspId)
-          .order('created_at', ascending: false)
-          .limit(1)
-          .listen((List<Map<String, dynamic>> data) {
-            if (mounted) {
-              if (data.isNotEmpty) {
+          .listen(
+            (List<Map<String, dynamic>> data) {
+              if (mounted && data.isNotEmpty) {
+                // The stream payload is an array of changed rows. Find the newest one.
+                data.sort(
+                  (a, b) => DateTime.parse(
+                    b['created_at'],
+                  ).compareTo(DateTime.parse(a['created_at'])),
+                );
+                final latestRecord = data.first;
+                // final lastSeen = DateTime.parse(latestRecord['created_at']);
+
                 setState(() {
                   _tdsValue =
-                      (data[0]['tds_value'] as num?)?.toDouble() ?? _tdsValue;
+                      (latestRecord['tds_value'] as num?)?.toDouble() ??
+                      _tdsValue;
                   _waterLevel =
-                      (data[0]['water_level'] as num?)?.toDouble() ??
+                      (latestRecord['water_level'] as num?)?.toDouble() ??
                       _waterLevel;
-                  isWifiConnectedNotifier.value =
-                      true; // Data is streaming, so connected
-                });
-              } else {
-                // Stream returns empty, means no data for this ESP_ID or disconnected
-                setState(() {
-                  _tdsValue = 0.0;
-                  _waterLevel = 0.0;
-                  isWifiConnectedNotifier.value = false;
+                  // isWifiConnectedNotifier.value =
+                  //     true; // We just got data, so we're connected. // MODIFIED: This line is removed.
+                  // _lastDataTimestamp = lastSeen; // Update the timestamp
                 });
               }
-            }
-          });
+              // No 'else' needed here. If the stream is empty, it means no new data.
+              // The periodic timer will handle marking the device as disconnected if the _lastDataTimestamp becomes stale.
+            },
+            onError: (e) {
+              print('Error in ESP data stream: $e');
+              isWifiConnectedNotifier.value = false;
+              // _lastDataTimestamp = null;
+            },
+          );
     }
   }
+  // --- END MODIFIED ---
 
   void _toggleFabMenu() {
     setState(() {
@@ -2874,43 +2946,43 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildConnectionStatus() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isWifiConnectedNotifier.value
-              ? const [Color(0xFFDCFCE7), Color(0xFFBBF7D0)]
-              : const [Color(0xFFFECACA), Color(0xFFFCA5A5)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ValueListenableBuilder<bool>(
-            valueListenable: isWifiConnectedNotifier,
-            builder: (context, isConnected, _) {
-              return Icon(
+    return ValueListenableBuilder<bool>(
+      valueListenable: isWifiConnectedNotifier,
+      builder: (context, isConnected, _) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isConnected
+                  ? const [Color(0xFFDCFCE7), Color(0xFFBBF7D0)]
+                  : const [Color(0xFFFECACA), Color(0xFFFCA5A5)],
+            ),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
                 isConnected ? Icons.wifi : Icons.wifi_off,
                 size: 14,
                 color: isConnected
                     ? const Color(0xFF16A34A)
                     : const Color(0xFFDC2626),
-              );
-            },
+              ),
+              const SizedBox(width: 4),
+              Text(
+                isConnected ? "Connected" : "Not Connected",
+                style: TextStyle(
+                  color: isConnected
+                      ? const Color(0xFF16A34A)
+                      : const Color(0xFFDC2626),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 4),
-          ValueListenableBuilder(
-            valueListenable: isWifiConnectedNotifier,
-            builder: (context, value, _) {
-              return Text(
-                value ? "Connected" : "Not Connected",
-                style: TextStyle(color: value ? Colors.green : Colors.red),
-              );
-            },
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -6221,14 +6293,9 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
 
   Future<void> connectToDevice(BluetoothDevice device) async {
     try {
-      // Generate a new ESP ID here, when a device is selected for connection
-      const uuid = Uuid();
-      final generatedEspId = uuid.v4();
-
-      // Get current user ID
+      // Check login
       final user = supabase.auth.currentUser;
       if (user == null) {
-        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('You must be logged in to connect a device.'),
@@ -6238,23 +6305,12 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
         return;
       }
 
-      // Insert the new device into user_devices table
-      await supabase.from('user_devices').insert({
-        'user_id': user.id,
-        'esp_id': generatedEspId,
-        'device_name': 'New Device', // Default name
-        'tank_capacity': null,
-        'tank_height': null,
-      });
-
-      // ignore: avoid_print
       print('🔗 Connecting to ${device.name}...');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Connecting to ${device.name}...')),
       );
 
       await device.connect();
-      // ignore: avoid_print
       print('✔️ Connected to ${device.name}');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -6264,12 +6320,10 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
       );
 
       List<BluetoothService> services = await device.discoverServices();
-
       final serviceUuid = Guid('12345678-1234-5678-1234-56789abcdef0');
       final charUuid = Guid('abcdefab-cdef-1234-5678-1234567890ab');
 
       BluetoothCharacteristic? targetChar;
-
       for (var service in services) {
         if (service.uuid == serviceUuid) {
           for (var char in service.characteristics) {
@@ -6282,37 +6336,23 @@ class _BluetoothDevicePageState extends State<BluetoothDevicePage> {
       }
 
       if (targetChar != null) {
-        // ignore: avoid_print
-        print('🎯 Characteristic found: ${targetChar.uuid}');
-        // ignore: use_build_context_synchronously
         await showWifiCredentialsDialog(
           context,
           device,
           targetChar,
           widget.onThemeChanged,
-          generatedEspId, // Pass the newly generated ESP ID here
         );
       } else {
-        // If characteristic not found, delete the newly created device entry
-        await supabase
-            .from('user_devices')
-            .delete()
-            .eq('esp_id', generatedEspId);
-        // ignore: avoid_print
-        print('❌ Required BLE characteristic not found. Device entry deleted.');
-        // ignore: use_build_context_synchronously
+        print('❌ Required BLE characteristic not found.');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              "✖️ Required device not found. Device entry removed.",
-            ),
+            content: Text("✖️ Required BLE characteristic not found."),
             backgroundColor: Colors.red,
           ),
         );
         await device.disconnect();
       }
     } catch (e) {
-      // ignore: avoid_print
       print('❌ Error connecting to device: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -6410,7 +6450,6 @@ Future<void> showWifiCredentialsDialog(
   BluetoothDevice device,
   BluetoothCharacteristic characteristic,
   Function(ThemeMode) onThemeChanged,
-  String? espIdForSetup, // Added espIdForSetup parameter
 ) async {
   final ssidController = TextEditingController();
   final passwordController = TextEditingController();
@@ -6439,7 +6478,6 @@ Future<void> showWifiCredentialsDialog(
           onPressed: () async {
             final ssid = ssidController.text.trim();
             final password = passwordController.text.trim();
-            // Include the espIdForSetup in the data sent to ESP32
             final data = "$ssid|$password";
 
             try {
@@ -6447,8 +6485,7 @@ Future<void> showWifiCredentialsDialog(
                 data.codeUnits,
                 withoutResponse: false,
               );
-              // ignore: avoid_print
-              print('✅ Sent to ESP32: $data');
+
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Sending Wi-Fi credentials...')),
               );
@@ -6456,25 +6493,9 @@ Future<void> showWifiCredentialsDialog(
               await characteristic.setNotifyValue(true);
               characteristic.value.listen((value) async {
                 final response = String.fromCharCodes(value);
-                // ignore: avoid_print
                 print("📩 Response from ESP32: $response");
 
                 if (response == "WIFI_OK") {
-                  isWifiConnectedNotifier.value = true;
-                  final user = supabase.auth.currentUser;
-                  Navigator.of(context).pop(); // Dismiss dialog
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => TankSetupScreen(
-                        onThemeChanged: onThemeChanged,
-                        espId:
-                            espIdForSetup!, // Pass the ESP ID to TankSetupScreen
-                        isNewDevice:
-                            true, // This is always a new setup for a device
-                      ),
-                    ),
-                  );
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text("✅ Wi-Fi connected!"),
@@ -6482,24 +6503,51 @@ Future<void> showWifiCredentialsDialog(
                     ),
                   );
 
+                  await Future.delayed(const Duration(seconds: 2));
+
+                  // Fetch the latest esp_id inserted by the ESP32
+                  final user = supabase.auth.currentUser;
                   if (user != null) {
-                    final response = await supabase
-                    .from('user_devices')
-                    .select('esp_id')
-                    .eq('user_id', user.id)
-                    .single();
+                    final latestDevice = await supabase
+                        .from('user_devices')
+                        .select('esp_id')
+                        .order('created_at', ascending: false)
+                        .limit(1)
+                        .maybeSingle();
 
-                    final String espId = response['esp_id'];
-                    print('🆔 ESP ID: $espId');
+                    if (latestDevice != null) {
+                      final espId = latestDevice['esp_id'];
+                      print('🆔 Latest esp_id from Supabase: $espId');
 
-                    // Send ESP ID over BLE
-                    await Future.delayed(const Duration(seconds: 1));
-                    await characteristic.write(
-                      utf8.encode("ESP_ID|$espId"),
-                      withoutResponse: false,
-                    );
+                      // Update the row with user_id
+                      await supabase
+                          .from('user_devices')
+                          .update({'user_id': user.id})
+                          .eq('esp_id', espId);
+
+                      print("✅ user_id linked with esp_id: $espId");
+
+                      Navigator.of(context).pop(); // Close dialog
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TankSetupScreen(
+                            onThemeChanged: onThemeChanged,
+                            espId: espId,
+                            isNewDevice: true,
+                          ),
+                        ),
+                      );
+                    } else {
+                      print("❌ No esp_id found from Supabase.");
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Could not find device."),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
                   }
-
                 } else if (response == "WIFI_FAIL") {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -6510,11 +6558,10 @@ Future<void> showWifiCredentialsDialog(
                 }
               });
             } catch (e) {
-              // ignore: avoid_print
-              print('Error sending Wi-Fi credentials: $e');
+              print('❌ Error sending Wi-Fi credentials: $e');
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Error sending Wi-Fi credentials: $e'),
+                  content: Text('Error: $e'),
                   backgroundColor: Colors.red,
                 ),
               );
