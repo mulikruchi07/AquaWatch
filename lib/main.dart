@@ -27,6 +27,8 @@ ValueNotifier<String?> currentEspIdNotifier = ValueNotifier(
 ValueNotifier<UserDevice?> currentSelectedDeviceNotifier = ValueNotifier(
   null,
 ); // Notifier for current selected device object
+final pingValueNotifier = ValueNotifier<String?>(null);
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Ensure Flutter widgets are initialized
@@ -1863,17 +1865,18 @@ class _TankSetupScreenState extends State<TankSetupScreen>
           );
 
           // ignore: use_build_context_synchronously
-          Navigator.of(context).pushReplacement(
-            PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) =>
-                  MainScreen(onThemeChanged: widget.onThemeChanged),
-              transitionsBuilder:
-                  (context, animation, secondaryAnimation, child) {
-                    return FadeTransition(opacity: animation, child: child);
-                  },
-              transitionDuration: const Duration(milliseconds: 500),
-            ),
-          );
+          Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                MainScreen(onThemeChanged: widget.onThemeChanged),
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 500),
+          ),
+          (route) => false
+        );
         } else {
           throw Exception('User not logged in.');
         }
@@ -2322,51 +2325,41 @@ class _DashboardScreenState extends State<DashboardScreen>
   // --- END MODIFIED ---
 
   @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    );
-    _animationController.forward();
+void initState() {
+  super.initState();
 
-    _fabAnimationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    );
-    _fabAnimation = CurvedAnimation(
-      parent: _fabAnimationController,
-      curve: Curves.easeOut,
-    );
+  // 🎬 Animation initialization
+  _animationController = AnimationController(
+    duration: const Duration(milliseconds: 1200),
+    vsync: this,
+  );
+  _animationController.forward();
 
-    _fetchUserDevicesAndSetCurrent();
+  _fabAnimationController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+  );
+  _fabAnimation = CurvedAnimation(
+    parent: _fabAnimationController,
+    curve: Curves.easeOut,
+  );
 
-    // Listen to changes in the current selected device
-    currentSelectedDeviceNotifier.addListener(_onCurrentDeviceChanged);
+  // 🔌 Load user's devices
+  _fetchUserDevicesAndSetCurrent();
 
-    // --- MODIFIED: Timer to periodically check for stale data disabled as per user request ---
-    /*
-    _connectivityCheckTimer = Timer.periodic(const Duration(seconds: 30), (
-      timer,
-    ) {
-      if (_lastDataTimestamp != null) {
-        // If data is older than 5 minutes, consider it disconnected
-        final isConnected =
-            DateTime.now().difference(_lastDataTimestamp!) <
-            const Duration(minutes: 5);
-        if (isWifiConnectedNotifier.value != isConnected) {
-          isWifiConnectedNotifier.value = isConnected;
-        }
-      } else {
-        // If there's no timestamp, we are disconnected
-        if (isWifiConnectedNotifier.value) {
-          isWifiConnectedNotifier.value = false;
-        }
-      }
-    });
-    */
-    // --- END MODIFIED ---
-  }
+  // 📡 Start periodic ESP data polling every 10 seconds
+  Timer.periodic(Duration(seconds: 10), (timer) {
+    if (mounted) {
+      _fetchEspData();
+    } else {
+      timer.cancel();
+    }
+  });
+
+  // 🎧 Listen for device selection changes
+  currentSelectedDeviceNotifier.addListener(_onCurrentDeviceChanged);
+}
+
 
   @override
   void dispose() {
@@ -2464,65 +2457,77 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // --- MODIFIED: This function now keeps the status as 'Not Connected' ---
   Future<void> _fetchEspData() async {
-    _espDataSubscription?.cancel(); // Cancel previous subscription
-    if (_currentEspId == null) {
-      // If no device is selected, clear dashboard data
-      setState(() {
-        _tdsValue = 0.0;
-        _waterLevel = 0.0;
-        isWifiConnectedNotifier.value = false;
-        // _lastDataTimestamp = null; // Reset timestamp
-      });
-      return;
-    }
+  _espDataSubscription?.cancel(); // Cancel previous subscription
 
-    try {
-      final espDataResponse = await supabase
-          .from('esp_data')
-          .select('tds_value, water_level, created_at') // Select created_at
-          .eq('esp_id', _currentEspId)
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle(); // Use maybeSingle for potentially no data
-
-      if (espDataResponse != null) {
-        // final lastSeen = DateTime.parse(espDataResponse['created_at']);
-        // final isConnected =
-        //     DateTime.now().difference(lastSeen) < const Duration(minutes: 5);
-
-        setState(() {
-          _tdsValue = (espDataResponse['tds_value'] as num?)?.toDouble() ?? 0.0;
-          _waterLevel =
-              (espDataResponse['water_level'] as num?)?.toDouble() ?? 0.0;
-          isWifiConnectedNotifier.value = false; // Always Not Connected
-          // _lastDataTimestamp = lastSeen; // Store the timestamp
-        });
-      } else {
-        // No data for this ESP ID, assume not connected or no readings yet
-        setState(() {
-          _tdsValue = 0.0;
-          _waterLevel = 0.0;
-          isWifiConnectedNotifier.value = false;
-          // _lastDataTimestamp = null; // Reset timestamp
-        });
-      }
-      _listenToEspData(); // Start listening after initial fetch
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error fetching ESP data: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error fetching data: $e')));
-      }
-      setState(() {
-        _tdsValue = 0.0;
-        _waterLevel = 0.0;
-        isWifiConnectedNotifier.value = false;
-        // _lastDataTimestamp = null; // Reset timestamp
-      });
-    }
+  if (_currentEspId == null) {
+    // If no device is selected, clear data
+    setState(() {
+      _tdsValue = 0.0;
+      _waterLevel = 0.0;
+    });
+    isWifiConnectedNotifier.value = false;
+    pingValueNotifier.value = null;
+    return;
   }
+
+  try {
+    final espDataResponse = await supabase
+        .from('esp_data')
+        .select('tds_value, water_level, created_at')
+        .eq('esp_id', _currentEspId)
+        .order('created_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+
+    if (espDataResponse != null) {
+      // ✅ Parse values
+      final tds = (espDataResponse['tds_value'] as num?)?.toDouble() ?? 0.0;
+      final waterLevel = (espDataResponse['water_level'] as num?)?.toDouble() ?? 0.0;
+      final createdAt = DateTime.parse(espDataResponse['created_at']);
+
+      // ✅ Check if ESP32 is connected (within last 10 seconds)
+      final now = DateTime.now();
+      final diff = now.difference(createdAt);
+      final isConnected = diff.inSeconds <= 10;
+
+      // ✅ Update state
+      setState(() {
+        _tdsValue = tds;
+        _waterLevel = waterLevel;
+      });
+
+      // ✅ Update reactive values
+      isWifiConnectedNotifier.value = isConnected;
+      pingValueNotifier.value = isConnected ? "${diff.inMilliseconds}ms" : null;
+    } else {
+      // ✅ No data = Not connected
+      setState(() {
+        _tdsValue = 0.0;
+        _waterLevel = 0.0;
+      });
+      isWifiConnectedNotifier.value = false;
+      pingValueNotifier.value = null;
+    }
+
+    // ✅ Listen to changes
+    _listenToEspData();
+  } catch (e) {
+    print('Error fetching ESP data: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error fetching data: $e')),
+      );
+    }
+
+    setState(() {
+      _tdsValue = 0.0;
+      _waterLevel = 0.0;
+    });
+    isWifiConnectedNotifier.value = false;
+    pingValueNotifier.value = null;
+  }
+}
+
   // --- END MODIFIED ---
 
   // --- MODIFIED: This function no longer sets the status to 'Connected' ---
@@ -2946,45 +2951,50 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildConnectionStatus() {
-    return ValueListenableBuilder<bool>(
-      valueListenable: isWifiConnectedNotifier,
-      builder: (context, isConnected, _) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isConnected
-                  ? const [Color(0xFFDCFCE7), Color(0xFFBBF7D0)]
-                  : const [Color(0xFFFECACA), Color(0xFFFCA5A5)],
+  return ValueListenableBuilder<bool>(
+    valueListenable: isWifiConnectedNotifier,
+    builder: (context, isConnected, _) {
+      return ValueListenableBuilder<String?>(
+        valueListenable: pingValueNotifier,
+        builder: (context, ping, _) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: isConnected ? Colors.green.shade50 : Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
             ),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isConnected ? Icons.wifi : Icons.wifi_off,
-                size: 14,
-                color: isConnected
-                    ? const Color(0xFF16A34A)
-                    : const Color(0xFFDC2626),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                isConnected ? "Connected" : "Not Connected",
-                style: TextStyle(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isConnected ? Icons.wifi : Icons.wifi_off,
+                  size: 22,
                   color: isConnected
                       ? const Color(0xFF16A34A)
                       : const Color(0xFFDC2626),
-                  fontWeight: FontWeight.w500,
                 ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
+                const SizedBox(width: 6),
+                Text(
+                  isConnected
+                      ? "$ping"
+                      : "",
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isConnected
+                        ? const Color(0xFF16A34A)
+                        : const Color(0xFFDC2626),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+
 
   Widget _buildSystemAlerts(bool isDark) {
     return Column(
