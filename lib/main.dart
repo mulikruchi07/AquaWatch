@@ -29,6 +29,25 @@ ValueNotifier<UserDevice?> currentSelectedDeviceNotifier = ValueNotifier(
 ); // Notifier for current selected device object
 final pingValueNotifier = ValueNotifier<String?>(null);
 
+// Helper function to format the last seen timestamp
+String formatLastSeen(DateTime lastSeen) {
+  final now = DateTime.now();
+  final difference = now.difference(lastSeen);
+
+  if (difference.inSeconds < 60) {
+    return "${difference.inSeconds}s ago";
+  } else if (difference.inMinutes < 60) {
+    return "${difference.inMinutes}m ago";
+  } else if (difference.inHours < 24) {
+    return "${difference.inHours}h ago";
+  } else if (difference.inDays == 1) {
+    return "Yesterday";
+  } else {
+    // Simple date format, no external package needed
+    return "${lastSeen.day}/${lastSeen.month}/${lastSeen.year}";
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Ensure Flutter widgets are initialized
   await SessionPersistence.restore(supabase);
@@ -2310,6 +2329,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   String? _currentEspId; // This will hold the currently selected ESP ID
   double _tankCapacity = 1000.0; // Default tank capacity
   List<UserDevice> _userDevices = []; // List of all user's devices
+  DateTime? _lastSeen; // Holds the timestamp of the last data received
 
   // For the Floating Action Button menu
   late AnimationController _fabAnimationController;
@@ -2462,6 +2482,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() {
         _tdsValue = 0.0;
         _waterLevel = 0.0;
+        _lastSeen = null;
       });
       isWifiConnectedNotifier.value = false;
       pingValueNotifier.value = null;
@@ -2493,6 +2514,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         setState(() {
           _tdsValue = tds;
           _waterLevel = waterLevel;
+          _lastSeen = createdAt;
         });
 
         // ✅ Update reactive values
@@ -2505,6 +2527,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         setState(() {
           _tdsValue = 0.0;
           _waterLevel = 0.0;
+          _lastSeen = null;
         });
         isWifiConnectedNotifier.value = false;
         pingValueNotifier.value = null;
@@ -2523,6 +2546,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() {
         _tdsValue = 0.0;
         _waterLevel = 0.0;
+        _lastSeen = null;
       });
       isWifiConnectedNotifier.value = false;
       pingValueNotifier.value = null;
@@ -2551,7 +2575,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ).compareTo(DateTime.parse(a['created_at'])),
                 );
                 final latestRecord = data.first;
-                // final lastSeen = DateTime.parse(latestRecord['created_at']);
+                final lastSeenFromStream = DateTime.parse(
+                  latestRecord['created_at'],
+                );
 
                 setState(() {
                   _tdsValue =
@@ -2560,6 +2586,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   _waterLevel =
                       (latestRecord['water_level'] as num?)?.toDouble() ??
                       _waterLevel;
+                  _lastSeen = lastSeenFromStream;
                   // isWifiConnectedNotifier.value =
                   //     true; // We just got data, so we're connected. // MODIFIED: This line is removed.
                   // _lastDataTimestamp = lastSeen; // Update the timestamp
@@ -2571,7 +2598,9 @@ class _DashboardScreenState extends State<DashboardScreen>
             onError: (e) {
               print('Error in ESP data stream: $e');
               isWifiConnectedNotifier.value = false;
-              // _lastDataTimestamp = null;
+              setState(() {
+                _lastSeen = null;
+              });
             },
           );
     }
@@ -2697,6 +2726,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                               isDark: isDark,
                               waterLevel: _waterLevel,
                               totalCapacity: _tankCapacity,
+                              lastSeen: _lastSeen,
                             ),
                             0,
                           ),
@@ -3144,12 +3174,14 @@ class TankStatusCard extends StatefulWidget {
   final bool isDark;
   final double waterLevel; // Water level from 0.0 to 1.0
   final double totalCapacity; // Total tank capacity in liters
+  final DateTime? lastSeen;
 
   const TankStatusCard({
     super.key,
     required this.isDark,
     required this.waterLevel,
     this.totalCapacity = 1000.0, // Default to 1000L if not provided
+    this.lastSeen,
   });
 
   @override
@@ -3220,29 +3252,80 @@ class _TankStatusCardState extends State<TankStatusCard>
                     : const Color(0xFF1F2937),
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFDCFCE7), Color(0xFFBBF7D0)],
-                ),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.circle, size: 8, color: Color(0xFF16A34A)),
-                  SizedBox(width: 4),
-                  Text(
-                    'Active',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFF16A34A),
+            ValueListenableBuilder<bool>(
+              valueListenable: isWifiConnectedNotifier,
+              builder: (context, isConnected, child) {
+                if (isConnected) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
                     ),
-                  ),
-                ],
-              ),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFDCFCE7), Color(0xFFBBF7D0)],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.circle, size: 8, color: Color(0xFF16A34A)),
+                        SizedBox(width: 4),
+                        Text(
+                          'Active',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF16A34A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                } else {
+                  String lastSeenText = 'Offline';
+                  if (widget.lastSeen != null) {
+                    lastSeenText =
+                        'Last seen: ${formatLastSeen(widget.lastSeen!)}';
+                  }
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: widget.isDark
+                          ? const Color(0xFF475569)
+                          : const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.circle,
+                          size: 8,
+                          color: widget.isDark
+                              ? const Color(0xFF94A3B8)
+                              : const Color(0xFF6B7280),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          lastSeenText,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: widget.isDark
+                                ? const Color(0xFF94A3B8)
+                                : const Color(0xFF6B7280),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+              },
             ),
           ],
         ),
