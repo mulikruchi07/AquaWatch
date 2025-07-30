@@ -17,8 +17,8 @@ import 'dart:convert'; // Import for UUID generation
 
 // Initialize Supabase client
 final supabase = SupabaseClient(
-  'https://himkdnnczzfzmwmjxlaa.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpbWtkbm5jenpmem13bWp4bGFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEyNTg0NjcsImV4cCI6MjA2NjgzNDQ2N30.Rib26sSBExk_22UxcZrssaT0tWNk1mN0ghJtvK4svWw',
+  'url',
+  'api',
 );
 ValueNotifier<bool> isWifiConnectedNotifier = ValueNotifier(false);
 ValueNotifier<String?> currentEspIdNotifier = ValueNotifier(
@@ -140,8 +140,6 @@ class _InitialScreenState extends State<InitialScreen> {
     super.initState();
 
     Future.delayed(const Duration(seconds: 3), () async {
-      final prefs = await SharedPreferences.getInstance();
-      final isRegistered = prefs.getBool('isRegistered') ?? false;
       // isTankSetupDone is no longer directly used for initial navigation, as it's per device
       // final isTankSetupDone = prefs.getBool('isTankSetupDone') ?? false;
 
@@ -151,10 +149,8 @@ class _InitialScreenState extends State<InitialScreen> {
       if (supabase.auth.currentSession != null) {
         // If a user is currently logged in with Supabase, go directly to MainScreen
         nextScreen = MainScreen(onThemeChanged: widget.onThemeChanged);
-      } else if (!isRegistered) {
-        // If no Supabase session, then check if they've registered at all
-        nextScreen = LoginScreen(onThemeChanged: widget.onThemeChanged);
-      } else {
+      } 
+       else {
         // Fallback for registered users, but no active session or tank setup done
         // This case should ideally be handled by the Supabase session check,
         // but as a fallback, we can direct them to login.
@@ -2990,10 +2986,6 @@ class _DashboardScreenState extends State<DashboardScreen>
           builder: (context, ping, _) {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: isConnected ? Colors.green.shade50 : Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -6556,7 +6548,7 @@ Future<void> showWifiCredentialsDialog(
                     ),
                   );
 
-                  await Future.delayed(const Duration(seconds: 2));
+                  await Future.delayed(const Duration(seconds: 4));
 
                   // Fetch the latest esp_id inserted by the ESP32
                   final user = supabase.auth.currentUser;
@@ -6774,29 +6766,32 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
           'email': widget.email,
         });
 
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isRegistered', true);
+
+        if (sessionResponse.session != null) {
+          await SessionPersistence.save(sessionResponse.session);
+
 
         // ignore: use_build_context_synchronously
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("✅ OTP Verified!")));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text("✅ OTP Verified!")));
 
-        // Navigate to BluetoothDevicePage without pre-generating ESP ID
-        // The ESP ID will be generated when a device is selected for connection
-        // ignore: use_build_context_synchronously
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => BluetoothDevicePage(
-              onThemeChanged: widget.onThemeChanged,
-              newEspId: null, // No ESP ID generated here
+          // Navigate to BluetoothDevicePage without pre-generating ESP ID
+          // The ESP ID will be generated when a device is selected for connection
+          // ignore: use_build_context_synchronously
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => BluetoothDevicePage(
+                onThemeChanged: widget.onThemeChanged,
+                newEspId: null, // No ESP ID generated here
+              ),
             ),
-          ),
-        );
-      } else {
+          );
+        } else {
         // Handle case where user is null after OTP verification (e.g., invalid OTP)
         throw Exception("OTP verification failed: User is null.");
+      }
       }
     } catch (e) {
       // ignore: avoid_print
