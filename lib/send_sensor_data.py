@@ -6,8 +6,8 @@ from supabase import create_client, Client
 # --- Supabase Configuration ---
 # Replace with your actual Supabase URL and anon key
 # You can find these in your Supabase Project Settings -> API
-SUPABASE_URL = "https://himkdnnczzfzmwmjxlaa.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpbWtkbm5jenpmem13bWp4bGFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEyNTg0NjcsImV4cCI6MjA2NjgzNDQ2N30.Rib26sSBExk_22UxcZrssaT0tWNk1mN0ghJtvK4svWw"
+SUPABASE_URL = "yoururl"
+SUPABASE_KEY = "yourkey"
 
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
